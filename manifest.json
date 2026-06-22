@@ -1,0 +1,7 @@
+{
+  "name": "PEAK_MX",
+  "version_number": "1.0.0",
+  "website_url": "https://github.com/maxkir041/PEAK-MX",
+  "description": "PEAK-MX - quality-of-life and utility mod with an ImGui menu (movement, cheats, inventory, achievements, cosmetics).",
+  "dependencies": []
+}

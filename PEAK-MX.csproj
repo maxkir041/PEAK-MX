@@ -1,0 +1,81 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>PEAK-MX</AssemblyName>
+    <Product>PEAK-MX</Product>
+    <Description>PEAK-MX — quality-of-life and utility mod for PEAK. Original work by maxkir041.</Description>
+    <Version>1.0.0</Version>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>11.0</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <RestoreAdditionalProjectSources></RestoreAdditionalProjectSources>
+    <Authors>maxkir041</Authors>
+    <Copyright>Copyright © 2026 maxkir041</Copyright>
+  </PropertyGroup>
+
+  <!-- Adjust these two paths if your install differs -->
+  <PropertyGroup>
+    <GameManaged>C:\Program Files (x86)\Steam\steamapps\common\PEAK\PEAK_Data\Managed</GameManaged>
+    <BepInExRoot>C:\Users\maxki\PEAK_AIO 1.1.2-RU\BepInEx</BepInExRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- BepInEx / Harmony -->
+    <Reference Include="BepInEx">
+      <HintPath>$(BepInExRoot)\core\BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(BepInExRoot)\core\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <!-- Game assemblies -->
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(GameManaged)\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp-firstpass">
+      <HintPath>$(GameManaged)\Assembly-CSharp-firstpass.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(GameManaged)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(GameManaged)\UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(GameManaged)\UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(GameManaged)\UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(GameManaged)\UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PhotonRealtime">
+      <HintPath>$(GameManaged)\PhotonRealtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PhotonUnityNetworking">
+      <HintPath>$(GameManaged)\PhotonUnityNetworking.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Zorro.Core.Runtime">
+      <HintPath>$(GameManaged)\Zorro.Core.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

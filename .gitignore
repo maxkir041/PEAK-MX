@@ -1,0 +1,21 @@
+# Build output
+bin/
+obj/
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+
+# OS junk
+Thumbs.db
+.DS_Store
+
+# NEVER commit secrets or third-party / decompiled code:
+#   - API keys (keys.txt, settings.json, pick-key.ps1)
+#   - decompiled game / other-author code (peak-api/, src-peak-aio/)
+# Keep this repo to PEAK-MX's own source only.
+keys.txt
+*.key
