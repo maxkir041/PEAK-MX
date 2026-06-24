@@ -39,4 +39,4 @@ If your PEAK install path differs, edit the paths at the top of `PEAK-MX.csproj`
 
 ## License
 
-PEAK-MX source code is released under the MIT License. See [LICENSE](LICENSE).
+All rights reserved. See [LICENSE](LICENSE).
