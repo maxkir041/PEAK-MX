@@ -18,14 +18,15 @@ namespace PeakMX
         public static readonly Color AccentDim = C(0.157f, 0.392f, 0.282f);
         public static readonly Color Text = C(0.949f, 0.957f, 0.965f);
         public static readonly Color TextDim = C(0.722f, 0.753f, 0.792f);
-        public static readonly Color Donate = C(1.000f, 0.620f, 0.231f);
-        public static readonly Color DonateHi = C(1.000f, 0.706f, 0.345f);
+        public static readonly Color Donate = C(0.349f, 0.624f, 0.957f);
+        public static readonly Color DonateHi = C(0.447f, 0.710f, 1.000f);
         public static readonly Color Gold = C(1.000f, 0.851f, 0.400f);
         public static readonly Color DarkOnAccent = C(0.043f, 0.094f, 0.067f);
 
         public static GUIStyle Window, Title, Subtitle, Section, Label, LabelDim, DonateText, TipText;
-        public static GUIStyle NavItem, NavItemActive, Toggle, ToggleOn, DonateBtn, LinkBtn, CloseBtn;
+        public static GUIStyle NavItem, NavItemActive, Toggle, ToggleOn, DonateBtn, LinkBtn, CloseBtn, DangerBtn, SuccessBtn;
         public static GUIStyle SliderBar, SliderThumb, Panel9, Tooltip, Card, SwitchOn, SwitchOff, RowLabel, RowHover;
+        public static GUIStyle ListItem, ListItemActive, Chip, ChipActive, FoldoutBtn, FoldoutBtnOpen;
         public static Texture2D KnobTex;
 
         private static bool _built;
@@ -36,13 +37,17 @@ namespace PeakMX
                 return;
             _built = true;
 
-            Window = Rounded(GUI.skin.box, Bg, 12, Text);
+            Window = Rounded(GUI.skin.box, Bg, 14, Text);
             Window.padding = new RectOffset(0, 0, 0, 0);
 
-            Panel9 = Rounded(GUI.skin.box, Panel, 10, Text);
-            Panel9.padding = new RectOffset(10, 10, 8, 8);
+            Panel9 = Rounded(GUI.skin.box, Panel, 12, Text);
+            Panel9.padding = new RectOffset(12, 12, 10, 10);
 
-            Tooltip = Rounded(GUI.skin.box, C(0.050f, 0.058f, 0.070f, 0.98f), 8, Gold);
+            Tooltip = Rounded(GUI.skin.box, C(0.050f, 0.058f, 0.070f, 0.98f), 8, Text);
+            Tooltip.alignment = TextAnchor.UpperLeft;
+            Tooltip.fontSize = 12;
+            Tooltip.wordWrap = true;
+            Tooltip.padding = new RectOffset(12, 12, 10, 10);
 
             Title = new GUIStyle(GUI.skin.label) { fontSize = 19, fontStyle = FontStyle.Bold, normal = { textColor = Color.white } };
             Subtitle = new GUIStyle(GUI.skin.label) { fontSize = 11, normal = { textColor = C(0.82f, 0.92f, 0.86f) } };
@@ -59,16 +64,16 @@ namespace PeakMX
             NavItem = Rounded(GUI.skin.button, Panel, 8, TextDim);
             NavItem.alignment = TextAnchor.MiddleLeft;
             NavItem.fontSize = 13;
-            NavItem.padding = new RectOffset(14, 8, 9, 9);
-            NavItem.margin = new RectOffset(0, 6, 3, 3);
+            NavItem.padding = new RectOffset(14, 10, 8, 8);
+            NavItem.margin = new RectOffset(0, 2, 2, 2);
             SetHover(NavItem, PanelHi, Color.white);
 
             NavItemActive = Rounded(GUI.skin.button, AccentDim, 8, Color.white);
             NavItemActive.alignment = TextAnchor.MiddleLeft;
             NavItemActive.fontSize = 13;
             NavItemActive.fontStyle = FontStyle.Bold;
-            NavItemActive.padding = new RectOffset(14, 8, 9, 9);
-            NavItemActive.margin = new RectOffset(0, 6, 3, 3);
+            NavItemActive.padding = new RectOffset(14, 10, 8, 8);
+            NavItemActive.margin = new RectOffset(0, 2, 2, 2);
             SetHover(NavItemActive, AccentDim, Color.white);
 
             Toggle = Rounded(GUI.skin.button, PanelLight, 8, Text);
@@ -88,8 +93,9 @@ namespace PeakMX
 
             DonateBtn = Rounded(GUI.skin.button, Donate, 8, Color.white);
             DonateBtn.fontSize = 14;
+            DonateBtn.wordWrap = false;
             DonateBtn.fontStyle = FontStyle.Bold;
-            DonateBtn.padding = new RectOffset(14, 14, 9, 9);
+            DonateBtn.padding = new RectOffset(14, 14, 7, 7);
             SetHover(DonateBtn, DonateHi, Color.white);
 
             LinkBtn = Rounded(GUI.skin.button, PanelLight, 7, Text);
@@ -101,15 +107,83 @@ namespace PeakMX
 
             CloseBtn = new GUIStyle(LinkBtn) { alignment = TextAnchor.MiddleCenter };
 
-            Card = Rounded(GUI.skin.box, C(0.102f, 0.117f, 0.141f), 10, Text);
-            Card.padding = new RectOffset(12, 12, 10, 12);
-            Card.margin = new RectOffset(0, 0, 0, 10);
+            DangerBtn = Rounded(GUI.skin.button, C(0.725f, 0.160f, 0.170f), 7, Color.white);
+            DangerBtn.fontSize = 12;
+            DangerBtn.fontStyle = FontStyle.Bold;
+            DangerBtn.padding = new RectOffset(12, 12, 7, 7);
+            DangerBtn.margin = new RectOffset(0, 6, 2, 2);
+            SetHover(DangerBtn, C(0.920f, 0.220f, 0.230f), Color.white);
+
+            SuccessBtn = Rounded(GUI.skin.button, AccentDim, 7, Color.white);
+            SuccessBtn.fontSize = 12;
+            SuccessBtn.fontStyle = FontStyle.Bold;
+            SuccessBtn.padding = new RectOffset(12, 12, 7, 7);
+            SuccessBtn.margin = new RectOffset(0, 6, 2, 2);
+            SetHover(SuccessBtn, Accent, DarkOnAccent);
+
+            FoldoutBtn = Rounded(GUI.skin.button, PanelLight, 9, Text);
+            FoldoutBtn.alignment = TextAnchor.MiddleLeft;
+            FoldoutBtn.fontSize = 13;
+            FoldoutBtn.fontStyle = FontStyle.Bold;
+            FoldoutBtn.padding = new RectOffset(12, 12, 8, 8);
+            FoldoutBtn.margin = new RectOffset(0, 0, 0, 0);
+            SetHover(FoldoutBtn, PanelHi, Color.white);
+
+            FoldoutBtnOpen = Rounded(GUI.skin.button, AccentDim, 9, Color.white);
+            FoldoutBtnOpen.alignment = TextAnchor.MiddleLeft;
+            FoldoutBtnOpen.fontSize = 13;
+            FoldoutBtnOpen.fontStyle = FontStyle.Bold;
+            FoldoutBtnOpen.padding = new RectOffset(12, 12, 8, 8);
+            FoldoutBtnOpen.margin = new RectOffset(0, 0, 0, 0);
+            SetHover(FoldoutBtnOpen, AccentDim, Color.white);
+
+            Card = Rounded(GUI.skin.box, C(0.102f, 0.117f, 0.141f), 12, Text);
+            Card.padding = new RectOffset(14, 14, 12, 14);
+            Card.margin = new RectOffset(0, 0, 0, 12);
 
             RowHover = Rounded(GUI.skin.box, C(0.180f, 0.200f, 0.231f, 0.55f), 8, Text);
 
             SwitchOn = Rounded(GUI.skin.box, Accent, 11, Text);
             SwitchOff = Rounded(GUI.skin.box, C(0.255f, 0.278f, 0.318f), 11, Text);
             RowLabel = new GUIStyle(GUI.skin.label) { fontSize = 13, alignment = TextAnchor.MiddleLeft, normal = { textColor = Text } };
+
+            // Compact list row (item spawner etc.): readable text, small vertical padding so
+            // it is NOT clipped at a modest row height. Single line, no wrap.
+            ListItem = Rounded(GUI.skin.button, Panel, 7, Text);
+            ListItem.alignment = TextAnchor.MiddleLeft;
+            ListItem.fontSize = 13;
+            ListItem.wordWrap = false;
+            ListItem.clipping = TextClipping.Clip;
+            ListItem.padding = new RectOffset(12, 10, 5, 5);
+            ListItem.margin = new RectOffset(0, 8, 2, 2);
+            SetHover(ListItem, PanelHi, Color.white);
+
+            ListItemActive = Rounded(GUI.skin.button, AccentDim, 7, Color.white);
+            ListItemActive.alignment = TextAnchor.MiddleLeft;
+            ListItemActive.fontSize = 13;
+            ListItemActive.fontStyle = FontStyle.Bold;
+            ListItemActive.wordWrap = false;
+            ListItemActive.clipping = TextClipping.Clip;
+            ListItemActive.padding = new RectOffset(12, 10, 5, 5);
+            ListItemActive.margin = new RectOffset(0, 8, 2, 2);
+            SetHover(ListItemActive, AccentDim, Color.white);
+
+            // Small square chip (slot numbers): centered, compact.
+            Chip = Rounded(GUI.skin.button, Panel, 7, TextDim);
+            Chip.alignment = TextAnchor.MiddleCenter;
+            Chip.fontSize = 13;
+            Chip.padding = new RectOffset(0, 0, 4, 4);
+            Chip.margin = new RectOffset(0, 6, 0, 0);
+            SetHover(Chip, PanelHi, Color.white);
+
+            ChipActive = Rounded(GUI.skin.button, AccentDim, 7, Color.white);
+            ChipActive.alignment = TextAnchor.MiddleCenter;
+            ChipActive.fontSize = 13;
+            ChipActive.fontStyle = FontStyle.Bold;
+            ChipActive.padding = new RectOffset(0, 0, 4, 4);
+            ChipActive.margin = new RectOffset(0, 6, 0, 0);
+            SetHover(ChipActive, AccentDim, Color.white);
+
             KnobTex = RoundedTex(Color.white, 16);
 
             SliderBar = new GUIStyle(GUI.skin.horizontalSlider)

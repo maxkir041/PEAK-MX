@@ -19,13 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This mod depends on third-party components that are NOT covered by this license
-and remain under their own respective licenses and copyrights, including but
-not limited to: BepInEx, HarmonyLib (0Harmony), Mono.Cecil, MonoMod,
-DearImGuiInjection, ImGui.NET, Dear ImGui, FASM, SharpDX, Reloaded.*, and Iced.
-PEAK and its assemblies are property of their respective owners. PEAK-MX is an
-unofficial, fan-made modification and is not affiliated with or endorsed by the
-developers or publisher of PEAK.

@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "peak-mx-telemetry",
+  "main": "src/index.js",
+  "compatibility_date": "2026-06-23",
+  "vars": {
+    "PUBLIC_BASE_URL": "https://peak-mx.rkngov.com"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "peak-mx-telemetry",
+      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "RAW_BUCKET",
+      "bucket_name": "peak-mx-telemetry-raw"
+    }
+  ]
+}

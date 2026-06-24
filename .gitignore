@@ -19,3 +19,9 @@ Thumbs.db
 # Keep this repo to PEAK-MX's own source only.
 keys.txt
 *.key
+src/Secret.cs
+cloudflare-telemetry/node_modules/
+cloudflare-telemetry/.wrangler/
+cloudflare-telemetry/.dev.vars
+cloudflare-telemetry/.env
+.wrangler/

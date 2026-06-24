@@ -17,7 +17,7 @@
   <!-- Adjust these two paths if your install differs -->
   <PropertyGroup>
     <GameManaged>C:\Program Files (x86)\Steam\steamapps\common\PEAK\PEAK_Data\Managed</GameManaged>
-    <BepInExRoot>C:\Users\maxki\PEAK_AIO 1.1.2-RU\BepInEx</BepInExRoot>
+    <BepInExRoot>C:\Program Files (x86)\Steam\steamapps\common\PEAK\BepInEx</BepInExRoot>
   </PropertyGroup>
 
   <ItemGroup>
@@ -76,6 +76,23 @@
       <HintPath>$(GameManaged)\Zorro.Core.Runtime.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="com.rlabrecque.steamworks.net">
+      <HintPath>$(GameManaged)\com.rlabrecque.steamworks.net.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Sirenix.Serialization">
+      <HintPath>$(GameManaged)\Sirenix.Serialization.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Sirenix.Utilities">
+      <HintPath>$(GameManaged)\Sirenix.Utilities.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
+
+  <!-- Авто-деплой собранной DLL в plugins (чтобы не копировать вручную) -->
+  <Target Name="DeployToPlugins" AfterTargets="Build">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExRoot)\plugins" SkipUnchangedFiles="false" />
+  </Target>
 
 </Project>

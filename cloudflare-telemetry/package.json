@@ -1,0 +1,14 @@
+{
+  "name": "peak-mx-cloudflare-telemetry",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker telemetry ingress for PEAK-MX",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "node --check src/index.js"
+  },
+  "devDependencies": {
+    "wrangler": "^4.22.0"
+  }
+}
