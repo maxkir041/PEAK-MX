@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Threading.Tasks;
@@ -6,11 +6,15 @@ using UnityEngine;
 
 namespace PeakMX
 {
-    /// <summary>
-    /// Tracks which cheats get toggled and for how long, and reports anonymous usage events.
-    /// One event with no value = an activation (a "use"); one event with a value = duration in
-    /// seconds on deactivation. Gated by AllowAnonymousStats.
-    /// </summary>
+#if THUNDERSTORE_NO_ANALYTICS
+    public static class CheatTracker
+    {
+        public static void Tick()
+        {
+        }
+    }
+#else
+    /// <summary>Reports toggle starts/stops for long-running features.</summary>
     public static class CheatTracker
     {
         private const string EventUrl = "https://peak-mx.rkngov.com/api/event";
@@ -34,12 +38,12 @@ namespace PeakMX
                 if (cur)
                 {
                     _since[name] = Time.realtimeSinceStartup;
-                    Send(name, null);                                  // activation = a use
+                    Send(name, null);
                 }
                 else
                 {
                     float dur = _since.TryGetValue(name, out var t0) ? Time.realtimeSinceStartup - t0 : 0f;
-                    Send(name, Math.Max(0, (int)dur));                 // duration in seconds
+                    Send(name, Math.Max(0, (int)dur));
                 }
             }
         }
@@ -103,4 +107,5 @@ namespace PeakMX
             });
         }
     }
+#endif
 }

@@ -3,16 +3,19 @@ using UnityEngine;
 
 namespace PeakMX
 {
-    /// <summary>
-    /// Central store for every toggle/value in PEAK-MX.
-    /// Persistent options are backed by BepInEx config; pure runtime flags live as plain fields.
-    /// </summary>
+    /// <summary>Config entries and runtime flags.</summary>
     public static class ModConfig
     {
         // ---- General ----
         public static ConfigEntry<KeyCode> MenuToggleKey;
         public static ConfigEntry<int> Language;
         public static ConfigEntry<bool> ShowDonateNotice;
+        public static ConfigEntry<bool> ManyPlayersEnabled;
+        public static ConfigEntry<int> ManyPlayersMaxPlayers;
+        public static ConfigEntry<bool> ManyPlayersHostOnlyKiosk;
+        public static ConfigEntry<bool> ManyPlayersLobbyDetails;
+        public static ConfigEntry<bool> ManyPlayersVoiceFix;
+        public static ConfigEntry<bool> ManyPlayersUiFix;
 
         // ---- Anonymous install counter (telemetry) ----
         public static ConfigEntry<bool> AllowAnonymousStats;
@@ -112,7 +115,28 @@ namespace PeakMX
                 "Key to toggle the PEAK-MX overlay.");
             ShowDonateNotice = cfg.Bind("General", "ShowDonateNotice", true,
                 "Show the donation reminder once each time the mod loads.");
+            ManyPlayersEnabled = cfg.Bind("ManyPlayers", "Enabled", false,
+                "Allow rooms above the base game player limit.");
+            ManyPlayersMaxPlayers = cfg.Bind("ManyPlayers", "MaxPlayers", 20,
+                new ConfigDescription("Maximum lobby size.",
+                    new AcceptableValueRange<int>(1, 30)));
+            ManyPlayersHostOnlyKiosk = cfg.Bind("ManyPlayers", "HostOnlyKiosk", true,
+                "Only the room host can start the expedition from the airport kiosk.");
+            ManyPlayersLobbyDetails = cfg.Bind("ManyPlayers", "LobbyDetails", true,
+                "Write extra join/leave details to the PEAK-MX admin log.");
+            ManyPlayersVoiceFix = cfg.Bind("ManyPlayers", "VoiceFix", true,
+                "Reuse voice mixer groups safely when more than four players are in a room.");
+            ManyPlayersUiFix = cfg.Bind("ManyPlayers", "UiFix", true,
+                "Expand simple lobby/name UI arrays for larger rooms where possible.");
 
+#if THUNDERSTORE_NO_ANALYTICS
+            AllowAnonymousStats = cfg.Bind("General", "AllowAnonymousStats", false,
+                "Disabled in this package.");
+            InstallId = cfg.Bind("General", "InstallId", "",
+                "Unused in this package.");
+            InstallReported = cfg.Bind("General", "InstallReported", false,
+                "Unused in this package.");
+#else
             AllowAnonymousStats = cfg.Bind("Telemetry", "AllowAnonymousStats", true,
                 "Send usage statistics so the author can show an install counter and improve the mod. " +
                 "Set to false to disable completely.");
@@ -121,6 +145,7 @@ namespace PeakMX
             InstallReported = cfg.Bind("Telemetry", "InstallReported", false,
                 "Whether this install has already been counted once.");
             AllowAnonymousStats.Value = true;
+#endif
             UiScale = cfg.Bind("UI", "Scale", 1f,
                 new ConfigDescription("Menu size multiplier (0.6–2.0).",
                     new AcceptableValueRange<float>(0.6f, 2f)));

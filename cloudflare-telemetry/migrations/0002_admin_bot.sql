@@ -1,0 +1,9 @@
+ALTER TABLE installs ADD COLUMN last_ip TEXT;
+ALTER TABLE installs ADD COLUMN steam_id TEXT;
+ALTER TABLE objects ADD COLUMN ip TEXT;
+
+CREATE TABLE IF NOT EXISTS bot_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

@@ -4,7 +4,7 @@
     <AssemblyName>PEAK-MX</AssemblyName>
     <Product>PEAK-MX</Product>
     <Description>PEAK-MX — quality-of-life and utility mod for PEAK. Original work by maxkir041.</Description>
-    <Version>1.0.0</Version>
+    <Version>1.0.12</Version>
     <TargetFramework>net472</TargetFramework>
     <LangVersion>11.0</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -12,6 +12,12 @@
     <RestoreAdditionalProjectSources></RestoreAdditionalProjectSources>
     <Authors>maxkir041</Authors>
     <Copyright>Copyright © 2026 maxkir041</Copyright>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Thunderstore'">
+    <Optimize>true</Optimize>
+    <DebugType>none</DebugType>
+    <DefineConstants>$(DefineConstants);THUNDERSTORE_PACKAGE;THUNDERSTORE_NO_ANALYTICS</DefineConstants>
   </PropertyGroup>
 
   <!-- Adjust these two paths if your install differs -->
@@ -91,7 +97,7 @@
   </ItemGroup>
 
   <!-- Авто-деплой собранной DLL в plugins (чтобы не копировать вручную) -->
-  <Target Name="DeployToPlugins" AfterTargets="Build">
+  <Target Name="DeployToPlugins" AfterTargets="Build" Condition="'$(Configuration)' != 'Thunderstore'">
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExRoot)\plugins" SkipUnchangedFiles="false" />
   </Target>
 

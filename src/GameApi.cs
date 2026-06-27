@@ -9,11 +9,7 @@ using Zorro.Core.Serizalization;
 
 namespace PeakMX
 {
-    /// <summary>
-    /// Game actions: item database, inventory spawning, player teleport/kill/revive.
-    /// All called from the main thread (button handlers in OnGUI), and each is guarded
-    /// so it never throws into the game loop.
-    /// </summary>
+    /// <summary>Game-side helpers used by menu actions.</summary>
     public static class GameApi
     {
         public enum CosmeticCategory
@@ -347,6 +343,42 @@ namespace PeakMX
             catch { return PhotonNetwork.IsMasterClient; }
         }
 
+        private static bool RequireHostForRemote(Character target, string action)
+        {
+#if THUNDERSTORE_PACKAGE
+            if (IsLocal(target) || IsHost())
+                return true;
+
+            LogHostOnly(action, target);
+            return false;
+#else
+            return true;
+#endif
+        }
+
+        private static bool RequireHostAction(string action)
+        {
+#if THUNDERSTORE_PACKAGE
+            if (IsHost())
+                return true;
+
+            LogHostOnly(action, null);
+            return false;
+#else
+            return true;
+#endif
+        }
+
+        private static void LogHostOnly(string action, Character target)
+        {
+            string name = target != null ? SafeCharacterName(target) : "";
+            string message = string.IsNullOrWhiteSpace(name)
+                ? $"{action}: host only"
+                : $"{action}: host only for {name}";
+            AddAdminLog(message);
+            Plugin.Log?.LogWarning("[GameApi] " + message);
+        }
+
         private static CharacterCustomization LocalCustomization()
         {
             try { return Character.localCharacter != null ? Character.localCharacter.refs?.customization : null; }
@@ -375,6 +407,8 @@ namespace PeakMX
             {
                 if (IsLocal(target))
                     return SpawnToSlot(itemIndex, slot);
+                if (!RequireHostForRemote(target, "inventory spawn"))
+                    return false;
 
                 var p = PlayerOf(target);
                 if (p == null || p.itemSlots == null) return false;
@@ -405,6 +439,8 @@ namespace PeakMX
             {
                 if (IsLocal(target))
                     return ClearSlot(slot);
+                if (!RequireHostForRemote(target, "inventory clear"))
+                    return false;
 
                 var p = PlayerOf(target);
                 if (p == null || p.itemSlots == null || slot < 0 || slot >= p.itemSlots.Length) return false;
@@ -495,6 +531,8 @@ namespace PeakMX
         {
             try
             {
+                if (!RequireHostForRemote(target, "backpack spawn"))
+                    return false;
                 if (itemIndex < 0 || itemIndex >= Items.Count) return false;
                 if (!CanBackpackItem(itemIndex)) return false;
                 var data = BackpackDataFor(target, true);
@@ -519,6 +557,8 @@ namespace PeakMX
         {
             try
             {
+                if (!RequireHostForRemote(target, "backpack clear"))
+                    return false;
                 var data = BackpackDataFor(target, false);
                 if (data == null || data.itemSlots == null || slot < 0 || slot >= data.itemSlots.Length) return false;
 
@@ -539,6 +579,8 @@ namespace PeakMX
         {
             try
             {
+                if (!RequireHostForRemote(target, "backpack recharge"))
+                    return;
                 var data = BackpackDataFor(target, false);
                 if (data == null || data.itemSlots == null || slot < 0 || slot >= data.itemSlots.Length) return;
                 RechargeItemSlotData(data.itemSlots[slot], value);
@@ -985,6 +1027,7 @@ namespace PeakMX
             try
             {
                 if (c == null) return;
+                if (!RequireHostForRemote(c, "warp player to spawn")) return;
                 var sp = c.data != null ? c.data.spawnPoint : null;
                 if (sp == null) return;
                 ((MonoBehaviourPun)c).photonView.RPC("WarpPlayerRPC", (RpcTarget)0, new object[] { sp.position + new Vector3(0f, 2f, 0f), true });
@@ -1015,6 +1058,7 @@ namespace PeakMX
         {
             try
             {
+                if (!RequireHostForRemote(c, "kill player")) return;
                 if (c != null) ((MonoBehaviourPun)c).photonView.RPC("RPCA_Die", (RpcTarget)0, new object[] { ((Component)c).transform.position });
                 if (c != null) ActionTracker.Track("player_kill", null, new Dictionary<string, object> { ["target"] = SafeCharacterName(c) });
             }
@@ -1026,6 +1070,7 @@ namespace PeakMX
             try
             {
                 if (c == null) return;
+                if (!RequireHostForRemote(c, "revive player")) return;
                 Vector3 pos = (c.Ghost != null ? ((Component)c.Ghost).transform.position : c.Head) + new Vector3(0f, 4f, 0f);
                 ((MonoBehaviourPun)c).photonView.RPC("RPCA_ReviveAtPosition", (RpcTarget)0, new object[] { pos, false, -1 });
                 ActionTracker.Track("player_revive", null, new Dictionary<string, object> { ["target"] = SafeCharacterName(c) });
@@ -1077,6 +1122,7 @@ namespace PeakMX
             try
             {
                 if (c == null || IsLocal(c)) return;
+                if (!RequireHostForRemote(c, "session ban")) return;
                 string id = PlayerBanId(c);
                 if (string.IsNullOrWhiteSpace(id)) return;
 
@@ -1120,6 +1166,7 @@ namespace PeakMX
         {
             try
             {
+                if (!RequireHostForRemote(c, "mute player")) return;
                 var owner = OwnerOf(c);
                 if (owner == null || owner == PhotonNetwork.LocalPlayer) return;
                 SetMuted(owner, !IsMuted(c));
@@ -1168,6 +1215,7 @@ namespace PeakMX
             try
             {
                 if (c == null) return;
+                if (!RequireHostForRemote(c, "freeze player")) return;
                 string key = FreezeKey(c);
                 if (string.IsNullOrWhiteSpace(key)) return;
 
@@ -1221,6 +1269,7 @@ namespace PeakMX
             try
             {
                 if (c == null) return;
+                if (!RequireHostForRemote(c, "inventory lock")) return;
                 string key = AdminCharacterKey(c);
                 if (string.IsNullOrWhiteSpace(key)) return;
                 string name = SafeCharacterName(c);
@@ -1487,6 +1536,7 @@ namespace PeakMX
             try
             {
                 if (c == null || Character.localCharacter == null) return;
+                if (!RequireHostForRemote(c, "bring player")) return;
                 Vector3 pos = Character.localCharacter.Head + new Vector3(0f, 4f, 0f);
                 ((MonoBehaviourPun)c).photonView.RPC("WarpPlayerRPC", (RpcTarget)0, new object[] { pos, true });
                 ActionTracker.Track("bring_player", null, new Dictionary<string, object> { ["target"] = SafeCharacterName(c) });
@@ -1496,6 +1546,7 @@ namespace PeakMX
 
         public static void ReviveAll()
         {
+            if (!RequireHostAction("revive all")) return;
             RefreshPlayers();
             foreach (var c in PlayerChars) RevivePlayer(c);
             ActionTracker.Track("revive_all", PlayerChars.Count);
@@ -1503,6 +1554,7 @@ namespace PeakMX
 
         public static void WarpAllToMe()
         {
+            if (!RequireHostAction("bring all")) return;
             RefreshPlayers();
             foreach (var c in PlayerChars) if (c != null && !c.IsLocal) BringPlayer(c);
             ActionTracker.Track("bring_all", PlayerChars.Count);
@@ -1511,6 +1563,7 @@ namespace PeakMX
         /// <summary>Kill every player; optionally skip yourself.</summary>
         public static void KillAll(bool excludeSelf)
         {
+            if (!RequireHostAction("kill all")) return;
             RefreshPlayers();
             int affected = 0;
             foreach (var c in PlayerChars)
@@ -1547,6 +1600,8 @@ namespace PeakMX
                     RechargeSlot(slot, value);
                     return;
                 }
+                if (!RequireHostForRemote(target, "inventory recharge"))
+                    return;
 
                 var p = PlayerOf(target);
                 if (p == null || p.itemSlots == null || slot < 0 || slot >= p.itemSlots.Length) return;
@@ -1618,6 +1673,7 @@ namespace PeakMX
         {
             try
             {
+                if (!RequireHostAction("open container")) return;
                 if (index < 0 || index >= LuggageObjects.Count) return;
                 var lug = LuggageObjects[index];
                 if (lug == null) return;
@@ -1630,6 +1686,7 @@ namespace PeakMX
 
         public static void OpenAllNearbyLuggage()
         {
+            if (!RequireHostAction("open all containers")) return;
             for (int i = 0; i < LuggageObjects.Count; i++) OpenLuggage(i);
             ActionTracker.Track("luggage_open_all", LuggageObjects.Count);
         }
@@ -1659,6 +1716,7 @@ namespace PeakMX
         {
             try
             {
+                if (!RequireHostAction("set run time")) return;
                 var rm = RunManager.Instance;
                 if (rm == null) return;
 
@@ -1688,6 +1746,7 @@ namespace PeakMX
         {
             try
             {
+                if (!RequireHostAction("set time of day")) return;
                 var manager = DayNightManager.instance;
                 if (manager == null) return;
 
@@ -1713,6 +1772,7 @@ namespace PeakMX
         {
             try
             {
+                if (!RequireHostAction("force win")) return;
                 var me = Character.localCharacter;
                 if (me == null) return;
                 ((MonoBehaviourPun)me).photonView.RPC("RPCEndGame_ForceWin", RpcTarget.All, new object[0]);
@@ -1727,6 +1787,7 @@ namespace PeakMX
         {
             try
             {
+                if (!RequireHostAction("spawn scoutmaster")) return;
                 if (!PhotonNetwork.IsMasterClient) { Plugin.Log?.LogWarning("[GameApi] Scoutmaster: host only"); return; }
                 if (target == null) return;
 
@@ -1742,14 +1803,34 @@ namespace PeakMX
 
                 var sm = obj.GetComponent<Scoutmaster>();
                 if (sm != null)
-                {
-                    var mi = typeof(Scoutmaster).GetMethod("SetCurrentTarget",
-                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-                    mi?.Invoke(sm, new object[] { target, 15f });
-                }
+                    TrySetScoutmasterTarget(obj, sm, target, 15f);
                 ActionTracker.Track("spawn_scoutmaster", null, new Dictionary<string, object> { ["target"] = SafeCharacterName(target) });
             }
             catch (Exception e) { Plugin.Log?.LogWarning($"[GameApi] SpawnScoutmaster: {e.Message}"); }
+        }
+
+        private static void TrySetScoutmasterTarget(GameObject scoutObject, Scoutmaster scoutmaster, Character target, float forceForSeconds)
+        {
+            try
+            {
+                if (scoutmaster == null || target == null)
+                    return;
+
+                var targetView = ((MonoBehaviourPun)target).photonView;
+                if (targetView == null || targetView.ViewID <= 0)
+                    return;
+
+                var scoutView = scoutObject != null ? scoutObject.GetComponent<PhotonView>() : null;
+                if (scoutView == null)
+                    return;
+
+                scoutmaster.currentTarget = target;
+                scoutView.RPC("RPCA_SetCurrentTarget", RpcTarget.All, new object[] { targetView.ViewID, forceForSeconds });
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogDebug($"[GameApi] Scoutmaster target skipped: {e.Message}");
+            }
         }
 
         // ---------------- stamina / afflictions (the status bar) ----------------
@@ -1764,6 +1845,7 @@ namespace PeakMX
         {
             try
             {
+                if (!RequireHostForRemote(c, "refill stamina")) return;
                 if (c != null && c.data != null) { c.data.currentStamina = 1f; c.data.extraStamina = Mathf.Max(c.data.extraStamina, 0f); }
                 if (c != null) ActionTracker.Track("status_full_stamina", null, new Dictionary<string, object> { ["target"] = SafeCharacterName(c) });
             }
@@ -1781,6 +1863,7 @@ namespace PeakMX
             {
                 Character target = c ?? Character.localCharacter;
                 if (target == null) return;
+                if (!RequireHostForRemote(target, "set extra stamina")) return;
                 float clamped = Mathf.Clamp01(amount);
                 if (IsLocal(target)) target.SetExtraStamina(clamped);
                 else if (IsHost() && target.data != null) target.data.extraStamina = clamped;
@@ -1794,6 +1877,7 @@ namespace PeakMX
         {
             try
             {
+                if (!RequireHostForRemote(c, "set status")) return;
                 var a = c != null && c.refs != null ? c.refs.afflictions : null;
                 if (a == null || idx < 0 || idx > 11) return;
                 float clamped = Mathf.Clamp01(amount);
@@ -1873,6 +1957,7 @@ namespace PeakMX
         {
             try
             {
+                if (!RequireHostForRemote(c, "increase status")) return;
                 var a = c != null && c.refs != null ? c.refs.afflictions : null;
                 if (a == null || idx < 0 || idx > 11) return;
                 float current = a.GetCurrentStatus((CharacterAfflictions.STATUSTYPE)idx);
@@ -1889,6 +1974,7 @@ namespace PeakMX
 
         public static void IncreaseCommonStatuses(Character c, float amount)
         {
+            if (!RequireHostForRemote(c, "increase common statuses")) return;
             int[] indices = { 0, 1, 2, 3, 5, 6, 8 };
             for (int i = 0; i < indices.Length; i++)
                 IncreaseStatus(c, indices[i], amount);
@@ -1898,6 +1984,7 @@ namespace PeakMX
         /// <summary>Clear every affliction (full heal) on a character.</summary>
         public static void ClearAllStatus(Character c)
         {
+            if (!RequireHostForRemote(c, "clear status")) return;
             for (int i = 0; i < 12; i++) SetStatus(c, i, 0f, false);
             ActionTracker.Track("status_clear_all", null, new Dictionary<string, object> { ["target"] = SafeCharacterName(c) });
         }
@@ -1907,6 +1994,7 @@ namespace PeakMX
         {
             Character target = c ?? Character.localCharacter;
             if (target == null) return;
+            if (!RequireHostForRemote(target, "prank afflict")) return;
             PrepareLocalStatusBatch(target);
 
             const float amount = 0.10f;
@@ -1940,6 +2028,7 @@ namespace PeakMX
             EnsureItemsLoaded();
             Character target = c ?? Character.localCharacter;
             if (target == null || itemIndex < 0 || itemIndex >= Items.Count) return;
+            if (!RequireHostForRemote(target, "prank spawn items")) return;
             int slots = SlotCountFor(target);
             if (slots <= 0) return;
             int n = Mathf.Clamp(count, 1, slots);
@@ -1998,6 +2087,7 @@ namespace PeakMX
 
         public static void FillInventoryWithGold(Character c)
         {
+            if (!RequireHostForRemote(c ?? Character.localCharacter, "fill inventory with gold")) return;
             int gold = FindGoldenItemIndex();
             if (gold >= 0) FillInventoryWith(c, gold);
             else Plugin.Log?.LogWarning("[GameApi] Gold item not found.");
@@ -2005,6 +2095,7 @@ namespace PeakMX
 
         public static void FillInventoryWithWebs(Character c)
         {
+            if (!RequireHostForRemote(c ?? Character.localCharacter, "fill inventory with webs")) return;
             int web = FindWebItemIndex();
             if (web >= 0)
             {
@@ -2022,6 +2113,7 @@ namespace PeakMX
             try
             {
                 Character target = c ?? Character.localCharacter;
+                if (!RequireHostForRemote(target, "tie balloons")) return;
                 var balloons = target?.refs?.balloons;
                 if (balloons == null) return;
 
@@ -2043,6 +2135,7 @@ namespace PeakMX
             try
             {
                 Character target = c ?? Character.localCharacter;
+                if (!RequireHostForRemote(target, "drop inventory")) return;
                 if (target == null || target.refs?.items == null || target.player == null) return;
 
                 Vector3 pos = SafePosition(target) + Vector3.up * 0.8f;
@@ -2162,6 +2255,7 @@ namespace PeakMX
                 return;
 
             Character target = c ?? Character.localCharacter;
+            if (!RequireHostForRemote(target, "fill inventory")) return;
             int slots = target != null ? SlotCountFor(target) : SlotCount();
             if (CanPocketItem(itemIndex))
             {
@@ -2188,6 +2282,7 @@ namespace PeakMX
             if (Items.Count == 0) return;
 
             Character target = c ?? Character.localCharacter;
+            if (!RequireHostForRemote(target, "fill random inventory")) return;
             int slots = target != null ? SlotCountFor(target) : SlotCount();
             if (slots <= 0) return;
 
@@ -2212,6 +2307,7 @@ namespace PeakMX
         public static void ClearInventory(Character c)
         {
             Character target = c ?? Character.localCharacter;
+            if (!RequireHostForRemote(target, "clear inventory")) return;
             int slots = target != null ? SlotCountFor(target) : SlotCount();
             if (slots <= 0) return;
 

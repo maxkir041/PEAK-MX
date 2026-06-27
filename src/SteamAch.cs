@@ -6,13 +6,7 @@ using Zorro.Core;
 
 namespace PeakMX
 {
-    /// <summary>
-    /// Steam achievement layer for PEAK-MX. The game's achievement string id equals the
-    /// ACHIEVEMENTTYPE enum member name (the game does SteamUserStats.SetAchievement(type.ToString())),
-    /// so we can unlock / revoke / query / fetch icons & display text directly via Steamworks.NET.
-    /// All calls are guarded — without Steam (or before init) nothing throws.
-    /// Original work by maxkir041.
-    /// </summary>
+    /// <summary>Steam achievement and icon helpers used by the menu.</summary>
     public static class SteamAch
     {
         private readonly struct LinkedAchievement

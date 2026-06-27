@@ -7,10 +7,7 @@ using UnityEngine;
 
 namespace PeakMX
 {
-    /// <summary>
-    /// Free-flight for the local character. Patched onto Character.Update so the velocity
-    /// override runs after the game's own movement each frame. Controlled by ModConfig.Fly.
-    /// </summary>
+    /// <summary>Local free-flight patch.</summary>
     [HarmonyPatch(typeof(Character), "Update")]
     public static class FlyPatch
     {
@@ -150,10 +147,7 @@ namespace PeakMX
         }
     }
 
-    /// <summary>
-    /// Teleport-to-ping: when the local player places a map ping and ModConfig.TeleportToPing
-    /// is on, warp the local character to that point.
-    /// </summary>
+    /// <summary>Teleports the local player to their own ping.</summary>
     [HarmonyPatch(typeof(PointPinger), "ReceivePoint_Rpc")]
     public static class PointPingPatch
     {

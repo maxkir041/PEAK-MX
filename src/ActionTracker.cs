@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Text;
@@ -6,11 +6,15 @@ using System.Threading.Tasks;
 
 namespace PeakMX
 {
-    /// <summary>
-    /// Sends important one-shot gameplay actions to the telemetry backend.
-    /// Unlike <see cref="CheatTracker"/>, this is for explicit user-triggered operations
-    /// such as inventory edits, teleports, world changes, and achievement actions.
-    /// </summary>
+#if THUNDERSTORE_NO_ANALYTICS
+    public static class ActionTracker
+    {
+        public static void Track(string name, double? value = null, Dictionary<string, object> meta = null)
+        {
+        }
+    }
+#else
+    /// <summary>One-shot usage events for explicit menu actions.</summary>
     public static class ActionTracker
     {
         private const string EventUrl = "https://peak-mx.rkngov.com/api/event";
@@ -156,4 +160,5 @@ namespace PeakMX
             sb.Append('"');
         }
     }
+#endif
 }

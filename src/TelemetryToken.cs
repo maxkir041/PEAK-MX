@@ -1,3 +1,4 @@
+#if !THUNDERSTORE_NO_ANALYTICS
 namespace PeakMX
 {
     internal static class TelemetryToken
@@ -7,3 +8,4 @@ namespace PeakMX
         internal const string Value = "peak-mx-public-v1";
     }
 }
+#endif

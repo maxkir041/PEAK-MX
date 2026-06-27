@@ -1,7 +1,9 @@
 {
   "name": "PEAK_MX",
-  "version_number": "1.0.0",
+  "version_number": "1.0.12",
   "website_url": "https://github.com/maxkir041/PEAK-MX",
-  "description": "PEAK-MX - quality-of-life and utility mod with an ImGui menu (movement, cheats, inventory, achievements, cosmetics).",
-  "dependencies": []
+  "description": "PEAK-MX - utility and admin menu for PEAK with movement, cheats, inventory, unlocks, host tools, and larger-lobby controls.",
+  "dependencies": [
+    "BepInEx-BepInExPack_PEAK-5.4.75301"
+  ]
 }

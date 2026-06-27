@@ -61,7 +61,15 @@ npx wrangler d1 migrations apply peak-mx-telemetry --remote
 npm run dev
 ```
 
-7. Deploy:
+7. Set secrets used by protected admin routes:
+
+```bash
+npx wrangler secret put STATS_TOKEN
+```
+
+`GET /api/stats` accepts the token as `Authorization: Bearer ...`, `x-admin-token`, or `?admin_token=...`.
+
+8. Deploy:
 
 ```bash
 npm run deploy
@@ -70,7 +78,9 @@ npm run deploy
 ## Notes
 
 - `GET /api/ping` returns `{ ok, counted, installs }`, matching the current mod expectation.
+- `GET /api/summary` is public and returns aggregate-only counters/charts.
+- `GET /api/stats` is private and requires `STATS_TOKEN` or `ADMIN_TOKEN`; it can include recent objects, network metadata, and diagnostics.
 - The mod ships with a public client key, so analytics works for every user without a private secret file. You can still set `PING_TOKEN` in the Worker if you want an extra override.
 - `POST /api/event` accepts either a single JSON event, `{ events: [...] }`, or a raw uploaded payload.
 - `POST /api/upload` stores the request body as-is in R2. Use headers like `x-install-id` and `x-event-kind` when sending bulk action files.
-- This worker only implements ingestion. It does not yet expose reporting dashboards or query endpoints.
+- The Telegram bot remains the preferred place for private reporting and client lookups.

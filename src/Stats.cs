@@ -1,31 +1,33 @@
-﻿using System;
+using System;
 using System.Net;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace PeakMX
 {
-    /// <summary>
-    /// Install/usage counter for PEAK-MX.
-    ///
-    /// What is sent on each launch (only if enabled in the About tab):
-    ///   - a locally-generated random GUID (install id),
-    ///   - the mod version and selected language.
-    /// The server (peak-mx.rkngov.com) additionally logs the request IP and approximate
-    /// geo/region for statistics and basic anti-abuse. This data is private and used only
-    /// by the author. The whole counter can be turned off in the About tab.
-    /// </summary>
+#if THUNDERSTORE_NO_ANALYTICS
     public static class Stats
     {
-        // Server endpoints. Contract: GET {Endpoint}?id={guid}&mod={ver}&lang={code}&t={token} -> JSON {"installs":N,...}
+        public static int? InstallCount { get; private set; }
+
+        public static void Init()
+        {
+        }
+
+        public static void SendNick(string nick)
+        {
+        }
+    }
+#else
+    /// <summary>Install counter and basic launch ping.</summary>
+    public static class Stats
+    {
         public const string Endpoint = "https://peak-mx.rkngov.com/api/ping";
         public const string NickEndpoint = "https://peak-mx.rkngov.com/api/setnick";
 
-        // Short language codes mirroring the website (index = Lang enum value).
         private static readonly string[] LangCodes =
             { "en", "ru", "uk", "zh-CN", "zh-TW", "ja", "ko", "es", "pt-BR", "de", "fr", "it", "pl", "tr" };
 
-        /// <summary>Current install total, or null until fetched / if disabled.</summary>
         public static int? InstallCount { get; private set; }
 
         public static void Init()
@@ -39,7 +41,6 @@ namespace PeakMX
             if (string.IsNullOrEmpty(ModConfig.InstallId.Value))
                 ModConfig.InstallId.Value = Guid.NewGuid().ToString("N");
 
-            // Fire-and-forget; never block or crash the game on network issues.
             Task.Run(() => Report(ModConfig.InstallId.Value));
         }
 
@@ -49,17 +50,18 @@ namespace PeakMX
             {
                 int langIdx = ModConfig.Language.Value;
                 string lang = (langIdx >= 0 && langIdx < LangCodes.Length) ? LangCodes[langIdx] : "en";
+                string steamId = SafeSteamId();
 
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
                 string url = $"{Endpoint}?id={Uri.EscapeDataString(id)}"
                            + $"&mod={Uri.EscapeDataString(Plugin.Version)}"
                            + $"&lang={Uri.EscapeDataString(lang)}"
+                           + (string.IsNullOrEmpty(steamId) ? "" : $"&steamId={Uri.EscapeDataString(steamId)}")
                            + $"&t={Uri.EscapeDataString(TelemetryToken.Value)}";
 
                 using var client = new WebClient();
                 string body = client.DownloadString(url);
 
-                // Server replies with JSON like {"installs":123,"counted":true}
                 var m = Regex.Match(body, "\"installs\"\\s*:\\s*(\\d+)");
                 if (m.Success && int.TryParse(m.Groups[1].Value, out int total))
                 {
@@ -74,13 +76,13 @@ namespace PeakMX
             }
         }
 
-        /// <summary>Send the player's display name once it becomes available (e.g. from Photon).</summary>
         public static void SendNick(string nick)
         {
             if (string.IsNullOrEmpty(nick) || string.IsNullOrEmpty(ModConfig.InstallId.Value))
                 return;
 
             string id = ModConfig.InstallId.Value;
+            string steamId = SafeSteamId();
             Task.Run(() =>
             {
                 try
@@ -88,6 +90,7 @@ namespace PeakMX
                     ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
                     string url = $"{NickEndpoint}?id={Uri.EscapeDataString(id)}"
                                + $"&nick={Uri.EscapeDataString(nick)}"
+                               + (string.IsNullOrEmpty(steamId) ? "" : $"&steamId={Uri.EscapeDataString(steamId)}")
                                + $"&t={Uri.EscapeDataString(TelemetryToken.Value)}";
                     using var client = new WebClient();
                     client.DownloadString(url);
@@ -95,5 +98,17 @@ namespace PeakMX
                 catch (Exception e) { Plugin.Log?.LogDebug($"[Stats] nick send failed: {e.Message}"); }
             });
         }
+
+        private static string SafeSteamId()
+        {
+            try
+            {
+                if (Steamworks.SteamAPI.IsSteamRunning())
+                    return Steamworks.SteamUser.GetSteamID().m_SteamID.ToString();
+            }
+            catch { }
+            return null;
+        }
     }
+#endif
 }

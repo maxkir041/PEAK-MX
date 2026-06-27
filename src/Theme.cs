@@ -2,10 +2,7 @@ using UnityEngine;
 
 namespace PeakMX
 {
-    /// <summary>
-    /// Custom IMGUI look for PEAK-MX with rounded corners (generated rounded textures + 9-slice).
-    /// Built once, lazily, during the first OnGUI pass. Original styling by maxkir041.
-    /// </summary>
+    /// <summary>Shared IMGUI styles and textures for the overlay.</summary>
     public static class Theme
     {
         public static readonly Color Bg = C(0.071f, 0.082f, 0.098f);

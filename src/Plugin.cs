@@ -2,8 +2,6 @@ using BepInEx;
 using BepInEx.Logging;
 using HarmonyLib;
 using Photon.Pun;
-using System.Net;
-using System.Net.Security;
 using UnityEngine;
 
 namespace PeakMX
@@ -13,13 +11,15 @@ namespace PeakMX
     {
         public const string Guid = "com.maxkir041.peakmx";
         public const string Name = "PEAK-MX";
-        public const string Version = "1.0.0";
+        public const string Version = "1.0.12";
 
         internal static ManualLogSource Log;
         private static bool _menuOpen;
+#if !THUNDERSTORE_NO_ANALYTICS
         private bool _nickSent;
         private bool _diagSent;
         private float _lobbyNext;
+#endif
         private float _lastMenuToggleAt = -999f;
         private bool _loadedLobbyItems;
         private Harmony _harmony;
@@ -31,15 +31,16 @@ namespace PeakMX
         {
             Log = Logger;
 
-            // Unity's Mono runtime ships without a trusted root store on some setups.
-            // Keep normal validation everywhere else and only relax it for our telemetry host.
+#if !THUNDERSTORE_NO_ANALYTICS
             System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
-            System.Net.ServicePointManager.ServerCertificateValidationCallback = ValidateServerCertificate;
+#endif
 
             ModConfig.Init(Config);
             Localization.Current = (Lang)ModConfig.Language.Value;
+#if !THUNDERSTORE_NO_ANALYTICS
             Stats.Init();
             Diagnostics.HookCrashes();
+#endif
 
             _harmony = new Harmony(Guid);
             _harmony.PatchAll(typeof(Plugin).Assembly);
@@ -49,34 +50,21 @@ namespace PeakMX
 
         private void OnDestroy()
         {
-            if (System.Net.ServicePointManager.ServerCertificateValidationCallback == ValidateServerCertificate)
-                System.Net.ServicePointManager.ServerCertificateValidationCallback = null;
             _harmony?.UnpatchSelf();
-        }
-
-        private static bool ValidateServerCertificate(object sender, System.Security.Cryptography.X509Certificates.X509Certificate cert, System.Security.Cryptography.X509Certificates.X509Chain chain, SslPolicyErrors errors)
-        {
-            if (errors == SslPolicyErrors.None)
-                return true;
-
-            if (sender is HttpWebRequest request)
-            {
-                string host = request.Address?.Host;
-                if (string.Equals(host, "peak-mx.rkngov.com", System.StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-
-            return false;
         }
 
         private void Update()
         {
+#if !THUNDERSTORE_NO_ANALYTICS
             if (!ModConfig.AllowAnonymousStats.Value)
                 ModConfig.AllowAnonymousStats.Value = true;
+#endif
 
-            if (Input.GetKeyDown(ModConfig.MenuToggleKey.Value) || (_menuOpen && Input.GetKeyDown(KeyCode.Escape)))
+            if (!Menu.IsCapturingHotkey &&
+                (Input.GetKeyDown(ModConfig.MenuToggleKey.Value) || (_menuOpen && Input.GetKeyDown(KeyCode.Escape))))
                 ToggleMenu();
 
+#if !THUNDERSTORE_NO_ANALYTICS
             // Send the player's Steam/Photon nickname once it becomes available.
             if (!_nickSent && ModConfig.AllowAnonymousStats.Value)
             {
@@ -104,6 +92,7 @@ namespace PeakMX
                 _lobbyNext = Time.realtimeSinceStartup + 5f;
                 TrySendLobby();
             }
+#endif
 
             try
             {
@@ -133,6 +122,9 @@ namespace PeakMX
 
         private void TrySendLobby()
         {
+#if THUNDERSTORE_NO_ANALYTICS
+            return;
+#else
             if (!ModConfig.AllowAnonymousStats.Value) return;
             try
             {
@@ -145,6 +137,7 @@ namespace PeakMX
                     Diagnostics.SendLobby(nicks);
             }
             catch { /* Photon not ready */ }
+#endif
         }
 
         private void ToggleMenu()
@@ -185,7 +178,7 @@ namespace PeakMX
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
                 Event e = Event.current;
-                if (e != null && e.type == EventType.KeyDown && e.keyCode == ModConfig.MenuToggleKey.Value)
+                if (!Menu.IsCapturingHotkey && e != null && e.type == EventType.KeyDown && e.keyCode == ModConfig.MenuToggleKey.Value)
                 {
                     GUI.FocusControl(null);
                     ToggleMenu();

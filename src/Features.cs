@@ -6,10 +6,7 @@ using UnityEngine;
 
 namespace PeakMX
 {
-    /// <summary>
-    /// Applies the active toggles to the local character every frame.
-    /// Everything here targets the player's own character only.
-    /// </summary>
+    /// <summary>Per-frame local feature updates.</summary>
     public static class Features
     {
         // Reflection accessor for the internal CharacterData.isInvincible flag.

@@ -6,11 +6,8 @@ using UnityEngine;
 
 namespace PeakMX
 {
-    /// <summary>
-    /// PEAK-MX overlay drawn with Unity IMGUI (no third-party UI libraries).
-    /// Original layout and styling by maxkir041.
-    /// </summary>
-    public static class Menu
+    /// <summary>PEAK-MX overlay drawn with Unity IMGUI.</summary>
+    public static partial class Menu
     {
         // maxkir041's links — opened in the default browser on click.
         private const string UrlSteam = "https://steamcommunity.com/id/everyng/";
@@ -83,10 +80,12 @@ namespace PeakMX
         private static float _lastTipUntil;
         private static Vector2 _tipScroll;
         private static bool _closeRequested;
+        private static bool _waitingForMenuKey;
 
         private static string L(string key) => Localization.T(key);
         private static bool Ru => Localization.Current == Lang.Russian;
         private static bool UseModernUi => true;
+        public static bool IsCapturingHotkey => _waitingForMenuKey;
 
         // Default Unity font (Arial) covers Latin + Cyrillic but not CJK. For Chinese/Japanese/
         // Korean we swap in a CJK-capable OS font so the glyphs actually render.
@@ -1081,6 +1080,7 @@ namespace PeakMX
                 GUILayout.Space(6);
                 GUILayout.Label(L("ui.language"), Theme.Section);
                 DrawLanguagePicker();
+                DrawMenuKeyBinding();
 
                 GUILayout.Space(6);
                 GUILayout.Label(Ru ? "Окно" : "Window", Theme.Section);
@@ -1143,6 +1143,7 @@ namespace PeakMX
             GUILayout.Space(6);
             GUILayout.Label(L("ui.language"), Theme.Section);
             DrawLanguagePicker();
+            DrawMenuKeyBinding();
 
             GUILayout.Space(6);
             GUILayout.Label(Ru ? "Размер меню" : "Menu size", Theme.Section);
@@ -1219,8 +1220,65 @@ namespace PeakMX
             GUILayout.EndVertical();
         }
 
+        private static void DrawMenuKeyBinding()
+        {
+            CaptureMenuKeyEvent();
+
+            GUILayout.Space(6);
+            GUILayout.Label(Ru ? "Клавиша меню" : "Menu key", Theme.Section);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(
+                (Ru ? "Текущая: " : "Current: ") + ModConfig.MenuToggleKey.Value,
+                Theme.Label,
+                GUILayout.Width(180));
+
+            string button = _waitingForMenuKey
+                ? (Ru ? "Нажми клавишу..." : "Press a key...")
+                : (Ru ? "Изменить" : "Change");
+            if (GUILayout.Button(button, Theme.LinkBtn, GUILayout.Height(28)))
+                _waitingForMenuKey = true;
+
+            if (GUILayout.Button(Ru ? "Сброс" : "Reset", Theme.LinkBtn, GUILayout.Width(80), GUILayout.Height(28)))
+            {
+                ModConfig.MenuToggleKey.Value = KeyCode.Insert;
+                _waitingForMenuKey = false;
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.Label(
+                _waitingForMenuKey
+                    ? (Ru ? "Нажми новую клавишу. Esc отменяет." : "Press the new key. Esc cancels.")
+                    : (Ru ? "Клавиша применяется сразу и сохраняется в конфиге." : "The key applies immediately and is saved to config."),
+                Theme.LabelDim);
+        }
+
+        private static void CaptureMenuKeyEvent()
+        {
+            Event e = Event.current;
+            if (!_waitingForMenuKey || e == null || e.type != EventType.KeyDown)
+                return;
+
+            if (e.keyCode == KeyCode.Escape)
+            {
+                _waitingForMenuKey = false;
+                e.Use();
+                return;
+            }
+
+            if (e.keyCode == KeyCode.None)
+                return;
+
+            ModConfig.MenuToggleKey.Value = e.keyCode;
+            _waitingForMenuKey = false;
+            GUI.FocusControl(null);
+            e.Use();
+        }
+
         private static void DrawAnalyticsStatus()
         {
+#if THUNDERSTORE_NO_ANALYTICS
+            return;
+#else
             ModConfig.AllowAnonymousStats.Value = true;
             string label = InstallStatsToggleText().Trim();
             string text = Localization.Current switch
@@ -1243,6 +1301,7 @@ namespace PeakMX
             GUILayout.Label(text, Theme.LabelDim);
             if (Stats.InstallCount.HasValue)
                 GUILayout.Label(InstallsLabel() + Stats.InstallCount.Value, Theme.LabelDim);
+#endif
         }
 
         private static string SupportText()
@@ -1345,6 +1404,9 @@ namespace PeakMX
 
         private static string InstallStatsToggleText()
         {
+#if THUNDERSTORE_NO_ANALYTICS
+            return "";
+#else
             switch (Localization.Current)
             {
                 case Lang.Russian: return " Анонимная аналитика";
@@ -1362,6 +1424,7 @@ namespace PeakMX
                 case Lang.Korean: return " 익명 분석";
                 default: return " Anonymous analytics";
             }
+#endif
         }
 
         private static string InstallsLabel()
@@ -1733,6 +1796,7 @@ namespace PeakMX
             GUILayout.Space(6);
             GUILayout.Label(L("ui.language"), Theme.Section);
             DrawLanguagePicker();
+            DrawMenuKeyBinding();
 
             GUILayout.Space(6);
             GUILayout.Label(Ru ? "Ссылки" : "Links", Theme.Section);
@@ -2554,6 +2618,8 @@ namespace PeakMX
                 ModConfig.AdminSpeedStrikes = Mathf.RoundToInt(NumberField(Ru ? "Срабатываний" : "Strikes", ModConfig.AdminSpeedStrikes, 1f, 10f));
                 EndSection();
             }
+
+            DrawManyPlayersAdmin();
 
             if (BeginSection("admin.lists", Ru ? "Баны, запреты и лог" : "Bans, locks & log", false))
             {

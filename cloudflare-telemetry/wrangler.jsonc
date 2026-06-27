@@ -6,18 +6,18 @@
   "vars": {
     "PUBLIC_BASE_URL": "https://peak-mx.rkngov.com"
   },
+  "routes": [
+    {
+      "pattern": "peak-mx.rkngov.com/api/*",
+      "zone_name": "rkngov.com"
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "peak-mx-telemetry",
-      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "database_name": "peakmx",
+      "database_id": "7a93f01e-f4eb-4c35-b5db-d9c790714672",
       "migrations_dir": "migrations"
-    }
-  ],
-  "r2_buckets": [
-    {
-      "binding": "RAW_BUCKET",
-      "bucket_name": "peak-mx-telemetry-raw"
     }
   ]
 }

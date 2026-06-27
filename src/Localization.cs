@@ -2,10 +2,7 @@ using System.Collections.Generic;
 
 namespace PeakMX
 {
-    /// <summary>
-    /// Languages offered by PEAK-MX. All UI strings here are PEAK-MX's own.
-    /// CJK languages require a CJK-capable OS font (loaded in Menu via Font.CreateDynamicFontFromOSFont).
-    /// </summary>
+    /// <summary>Languages offered by PEAK-MX.</summary>
     public enum Lang
     {
         English = 0,
