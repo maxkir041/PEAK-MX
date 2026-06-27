@@ -61,11 +61,6 @@ dotnet build -c Release
 
 The build copies `PEAK-MX.dll` into the configured PEAK BepInEx plugins folder.
 
-For a Thunderstore package without analytics:
-
-```powershell
-dotnet build -c Thunderstore
-```
 
 If your PEAK install path differs, edit the paths at the top of `PEAK-MX.csproj`.
 
