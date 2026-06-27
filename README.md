@@ -40,10 +40,6 @@ The menu hotkey can be changed inside the About tab. The menu can also be closed
 - Achievements and cosmetics unlock/reset tools with badge icons and cosmetic previews.
 - Interface supports 14 languages: English, Russian, Ukrainian, Simplified Chinese, Traditional Chinese, Japanese, Korean, Spanish, Brazilian Portuguese, German, French, Italian, Polish, and Turkish.
 
-## Build Variants
-
-- GitHub/Nexus build: normal release build with optional anonymous telemetry for install statistics and maintenance.
-- Thunderstore build: compiled with analytics disabled.
 
 ## Important
 
