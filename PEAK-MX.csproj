@@ -4,7 +4,7 @@
     <AssemblyName>PEAK-MX</AssemblyName>
     <Product>PEAK-MX</Product>
     <Description>PEAK-MX — quality-of-life and utility mod for PEAK. Original work by maxkir041.</Description>
-    <Version>1.0.12</Version>
+    <Version>1.0.13</Version>
     <TargetFramework>net472</TargetFramework>
     <LangVersion>11.0</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

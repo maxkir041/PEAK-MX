@@ -21,6 +21,7 @@ namespace PeakMX
             Outfit,
             Hat,
             Sash,
+            Medal,
         }
 
         public struct AdminListEntry
@@ -61,6 +62,9 @@ namespace PeakMX
         private static readonly MethodInfo CustomSetOutfit = typeof(CharacterCustomization).GetMethod("SetCharacterOutfit", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
         private static readonly MethodInfo CustomSetHat = typeof(CharacterCustomization).GetMethod("SetCharacterHat", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
         private static readonly MethodInfo CustomSetSash = typeof(CharacterCustomization).GetMethod("SetCharacterSash", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+        private static readonly MethodInfo CustomSetMedal = typeof(CharacterCustomization).GetMethod("SetCharacterMedal", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+        private static readonly FieldInfo RunTimeField = typeof(RunManager).GetField("timeSinceRunStarted", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo CharacterViewField = typeof(Character).GetField("view", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
 
         private struct AdminMotionSample
         {
@@ -78,11 +82,32 @@ namespace PeakMX
                 var dbObj = Resources.Load("ItemDatabase", typeof(ItemDatabase)) as ItemDatabase;
                 if (dbObj != null)
                 {
-                    var objects = ((DatabaseAsset<ItemDatabase, Item>)(object)dbObj).Objects;
-                    foreach (var it in objects) Add(it as Item);
+                    try
+                    {
+                        if (dbObj.itemLookup != null)
+                            foreach (var it in dbObj.itemLookup.Values)
+                                Add(it);
+                    }
+                    catch (Exception e) { Plugin.Log?.LogDebug($"[GameApi] LoadItems itemLookup: {e.Message}"); }
+
+                    try
+                    {
+                        var objects = ((ObjectDatabaseAsset<ItemDatabase, Item>)(object)dbObj).Objects;
+                        foreach (var it in objects) Add(it as Item);
+                    }
+                    catch (Exception e) { Plugin.Log?.LogDebug($"[GameApi] LoadItems ObjectDatabaseAsset: {e.Message}"); }
+
+                    try
+                    {
+                        var objects = ((DatabaseAsset<ItemDatabase, Item>)(object)dbObj).Objects;
+                        foreach (var it in objects) Add(it as Item);
+                    }
+                    catch (Exception e) { Plugin.Log?.LogDebug($"[GameApi] LoadItems DatabaseAsset: {e.Message}"); }
                 }
-                foreach (var o in Resources.LoadAll("0_Items", typeof(Item))) Add(o as Item);
-                foreach (var o in Resources.FindObjectsOfTypeAll(typeof(Item))) Add(o as Item);
+                try { foreach (var o in Resources.LoadAll("0_Items", typeof(Item))) Add(o as Item); }
+                catch (Exception e) { Plugin.Log?.LogDebug($"[GameApi] LoadItems 0_Items: {e.Message}"); }
+                try { foreach (var o in Resources.FindObjectsOfTypeAll(typeof(Item))) Add(o as Item); }
+                catch (Exception e) { Plugin.Log?.LogDebug($"[GameApi] LoadItems all objects: {e.Message}"); }
                 _itemsEverLoaded = ItemNames.Count > 0;
                 Plugin.Log?.LogInfo($"[GameApi] items loaded: {ItemNames.Count}");
             }
@@ -280,9 +305,7 @@ namespace PeakMX
                 if (!CanPocketItem(itemIndex)) return false;
 
                 ItemSlot s = p.itemSlots[slot];
-                s.prefab = Items[itemIndex];
-                s.data = new ItemInstanceData(Guid.NewGuid());
-                ItemInstanceDataHandler.AddInstanceData(s.data);
+                SetSlotItem(s, Items[itemIndex]);
                 SyncInventory(p);
                 ActionTracker.Track("inventory_spawn_local", null, new Dictionary<string, object>
                 {
@@ -301,9 +324,7 @@ namespace PeakMX
             {
                 var p = Player.localPlayer;
                 if (p == null || p.itemSlots == null || slot < 0 || slot >= p.itemSlots.Length) return false;
-                ItemSlot s = p.itemSlots[slot];
-                s.prefab = null;
-                s.data = null;
+                ClearItemSlot(p.itemSlots[slot]);
                 SyncInventory(p);
                 ActionTracker.Track("inventory_clear_local", null, new Dictionary<string, object>
                 {
@@ -315,6 +336,20 @@ namespace PeakMX
         }
 
         private static void SyncInventory(Player p) { SyncInventory(p, (RpcTarget)1); }
+
+        private static void SetSlotItem(ItemSlot slot, Item prefab)
+        {
+            if (slot == null || prefab == null) return;
+            ItemInstanceData data = new ItemInstanceData(Guid.NewGuid());
+            slot.SetItem(prefab, data);
+            ItemInstanceDataHandler.AddInstanceData(data);
+        }
+
+        private static void ClearItemSlot(ItemSlot slot)
+        {
+            if (slot == null) return;
+            slot.EmptyOut();
+        }
 
         // target: 0 = All, 1 = Others. For remote players we sync to All so the change
         // lands on the owner too (they don't run our local write).
@@ -417,9 +452,7 @@ namespace PeakMX
                 if (!CanPocketItem(itemIndex)) return false;
 
                 ItemSlot s = p.itemSlots[slot];
-                s.prefab = Items[itemIndex];
-                s.data = new ItemInstanceData(Guid.NewGuid());
-                ItemInstanceDataHandler.AddInstanceData(s.data);
+                SetSlotItem(s, Items[itemIndex]);
                 SyncInventory(p, (RpcTarget)0);
                 ActionTracker.Track("inventory_spawn_remote", null, new Dictionary<string, object>
                 {
@@ -444,9 +477,7 @@ namespace PeakMX
 
                 var p = PlayerOf(target);
                 if (p == null || p.itemSlots == null || slot < 0 || slot >= p.itemSlots.Length) return false;
-                ItemSlot s = p.itemSlots[slot];
-                s.prefab = null;
-                s.data = null;
+                ClearItemSlot(p.itemSlots[slot]);
                 SyncInventory(p, (RpcTarget)0);
                 ActionTracker.Track("inventory_clear_remote", null, new Dictionary<string, object>
                 {
@@ -538,9 +569,7 @@ namespace PeakMX
                 var data = BackpackDataFor(target, true);
                 if (data == null || data.itemSlots == null || slot < 0 || slot >= data.itemSlots.Length) return false;
 
-                data.itemSlots[slot].prefab = Items[itemIndex];
-                data.itemSlots[slot].data = new ItemInstanceData(Guid.NewGuid());
-                ItemInstanceDataHandler.AddInstanceData(data.itemSlots[slot].data);
+                SetSlotItem(data.itemSlots[slot], Items[itemIndex]);
                 SyncTargetInventory(target);
                 ActionTracker.Track("inventory_spawn_backpack", null, new Dictionary<string, object>
                 {
@@ -562,8 +591,7 @@ namespace PeakMX
                 var data = BackpackDataFor(target, false);
                 if (data == null || data.itemSlots == null || slot < 0 || slot >= data.itemSlots.Length) return false;
 
-                data.itemSlots[slot].prefab = null;
-                data.itemSlots[slot].data = null;
+                ClearItemSlot(data.itemSlots[slot]);
                 SyncTargetInventory(target);
                 ActionTracker.Track("inventory_clear_backpack", null, new Dictionary<string, object>
                 {
@@ -630,6 +658,7 @@ namespace PeakMX
                     CosmeticCategory.Outfit => db.fits ?? Array.Empty<CustomizationOption>(),
                     CosmeticCategory.Hat => db.hats ?? Array.Empty<CustomizationOption>(),
                     CosmeticCategory.Sash => db.sashes ?? Array.Empty<CustomizationOption>(),
+                    CosmeticCategory.Medal => db.medals ?? Array.Empty<CustomizationOption>(),
                     _ => Array.Empty<CustomizationOption>(),
                 };
             }
@@ -655,6 +684,7 @@ namespace PeakMX
                     CosmeticCategory.Outfit => data.currentOutfit,
                     CosmeticCategory.Hat => data.currentHat,
                     CosmeticCategory.Sash => data.currentSash,
+                    CosmeticCategory.Medal => data.currentMedal,
                     _ => -1,
                 };
             }
@@ -713,6 +743,7 @@ namespace PeakMX
                 CosmeticCategory.Outfit => Customization.Type.Fit,
                 CosmeticCategory.Hat => Customization.Type.Hat,
                 CosmeticCategory.Sash => Customization.Type.Sash,
+                CosmeticCategory.Medal => Customization.Type.Medal,
                 _ => Customization.Type.Skin,
             };
         }
@@ -775,6 +806,7 @@ namespace PeakMX
                     case CosmeticCategory.Outfit: data.currentOutfit = index; InvokeCustomizationSetter(cc, CustomSetOutfit, index); break;
                     case CosmeticCategory.Hat: data.currentHat = index; InvokeCustomizationSetter(cc, CustomSetHat, index); break;
                     case CosmeticCategory.Sash: data.currentSash = index; InvokeCustomizationSetter(cc, CustomSetSash, index); break;
+                    case CosmeticCategory.Medal: data.currentMedal = index; InvokeCustomizationSetter(cc, CustomSetMedal, index); break;
                     default: return false;
                 }
 
@@ -973,37 +1005,44 @@ namespace PeakMX
             {
                 PlayerChars.Clear();
                 PlayerNames.Clear();
+
+                AddPlayerCharacter(Character.localCharacter);
+                try { AddPlayerCharacter(Player.localPlayer?.character); } catch { }
+
                 var all = Character.AllCharacters;
-                if (all == null) return;
-                foreach (var c in all)
-                {
-                    if (c == null) continue;
-                    bool hasPhoton = false;
-                    try { hasPhoton = ((MonoBehaviourPun)c).photonView != null; } catch { }
-                    if (!hasPhoton) continue;
+                if (all != null)
+                    foreach (var c in all)
+                        AddPlayerCharacter(c);
 
-                    bool duplicate = false;
-                    for (int i = 0; i < PlayerChars.Count; i++)
-                    {
-                        if (PlayerChars[i] == c)
-                        {
-                            duplicate = true;
-                            break;
-                        }
-                    }
-                    if (duplicate) continue;
-
-                    PlayerChars.Add(c);
-                    string name = null;
-                    try { name = c.characterName; } catch { }
-                    if (string.IsNullOrWhiteSpace(name))
-                    {
-                        try { name = ((MonoBehaviourPun)c).photonView?.Owner?.NickName; } catch { }
-                    }
-                    PlayerNames.Add(string.IsNullOrWhiteSpace(name) ? "Unknown" : name);
-                }
+                foreach (var c in UnityEngine.Object.FindObjectsByType<Character>(FindObjectsSortMode.None))
+                    AddPlayerCharacter(c);
             }
             catch (Exception e) { Plugin.Log?.LogWarning($"[GameApi] RefreshPlayers: {e.Message}"); }
+        }
+
+        private static void AddPlayerCharacter(Character c)
+        {
+            if (c == null) return;
+            try
+            {
+                bool local = IsLocal(c);
+                if (!local)
+                {
+                    try { if (c.isBot || c.isZombie || c.isScoutmaster) return; } catch { }
+                    Player player = PlayerOf(c);
+                    PhotonView view = ViewOf(c);
+                    if (player == null || view == null)
+                        return;
+                }
+
+                for (int i = 0; i < PlayerChars.Count; i++)
+                    if (PlayerChars[i] == c)
+                        return;
+
+                PlayerChars.Add(c);
+                PlayerNames.Add(SafeCharacterName(c));
+            }
+            catch (Exception e) { Plugin.Log?.LogDebug($"[GameApi] AddPlayerCharacter: {e.Message}"); }
         }
 
         public static void ReviveSelf() { if (Character.localCharacter != null) RevivePlayer(Character.localCharacter); }
@@ -1058,11 +1097,24 @@ namespace PeakMX
         {
             try
             {
+                if (c == null) return;
                 if (!RequireHostForRemote(c, "kill player")) return;
-                if (c != null) ((MonoBehaviourPun)c).photonView.RPC("RPCA_Die", (RpcTarget)0, new object[] { ((Component)c).transform.position });
-                if (c != null) ActionTracker.Track("player_kill", null, new Dictionary<string, object> { ["target"] = SafeCharacterName(c) });
+                var view = ViewOf(c);
+                if (view == null) return;
+
+                try
+                {
+                    view.RPC("RPCA_Die", (RpcTarget)0, new object[0]);
+                }
+                catch (Exception rpcError)
+                {
+                    Plugin.Log?.LogWarning($"[GameApi] KillPlayer RPCA_Die failed, falling back to RPCA_SetDead: {RootExceptionMessage(rpcError)}");
+                    view.RPC("RPCA_SetDead", (RpcTarget)0, new object[0]);
+                }
+
+                ActionTracker.Track("player_kill", null, new Dictionary<string, object> { ["target"] = SafeCharacterName(c) });
             }
-            catch (Exception e) { Plugin.Log?.LogWarning($"[GameApi] KillPlayer: {e.Message}"); }
+            catch (Exception e) { Plugin.Log?.LogWarning($"[GameApi] KillPlayer: {RootExceptionMessage(e)}"); }
         }
 
         public static void RevivePlayer(Character c)
@@ -1504,8 +1556,35 @@ namespace PeakMX
 
         private static Photon.Realtime.Player OwnerOf(Character c)
         {
-            try { return c != null ? ((MonoBehaviourPun)c).photonView?.Owner : null; }
+            if (c == null) return null;
+            try
+            {
+                var view = ViewOf(c);
+                if (view != null && view.Owner != null) return view.Owner;
+            }
+            catch { }
+            return null;
+        }
+
+        private static PhotonView ViewOf(Character c)
+        {
+            if (c == null) return null;
+            try
+            {
+                var view = CharacterViewField != null ? CharacterViewField.GetValue(c) as PhotonView : null;
+                if (view != null) return view;
+            }
+            catch { }
+            try { return ((MonoBehaviourPun)c).photonView; }
             catch { return null; }
+        }
+
+        private static string RootExceptionMessage(Exception e)
+        {
+            if (e == null) return "";
+            while (e is TargetInvocationException && e.InnerException != null)
+                e = e.InnerException;
+            return $"{e.GetType().Name}: {e.Message}";
         }
 
         private static string PlayerBanId(Character c)
@@ -1708,8 +1787,30 @@ namespace PeakMX
         // ---------------- world / timer ----------------
         public static float ExpeditionTimeSeconds()
         {
-            try { return RunManager.Instance != null ? RunManager.Instance.timeSinceRunStarted : 0f; }
+            try { return RunTimeSeconds(RunManager.Instance); }
             catch { return 0f; }
+        }
+
+        public static float RunTimeSeconds(RunManager rm)
+        {
+            if (rm == null) return 0f;
+            try { return rm.TimeSinceRunStarted; }
+            catch
+            {
+                try { return RunTimeField != null ? (float)RunTimeField.GetValue(rm) : 0f; }
+                catch { return 0f; }
+            }
+        }
+
+        public static void SetRunTimeLocal(RunManager rm, float seconds)
+        {
+            if (rm == null) return;
+            try
+            {
+                if (RunTimeField != null)
+                    RunTimeField.SetValue(rm, Mathf.Max(0f, seconds));
+            }
+            catch (Exception e) { Plugin.Log?.LogDebug($"[GameApi] SetRunTimeLocal: {e.Message}"); }
         }
 
         public static void SetExpeditionTime(float seconds)
@@ -1721,7 +1822,7 @@ namespace PeakMX
                 if (rm == null) return;
 
                 seconds = Mathf.Max(0f, seconds);
-                rm.timeSinceRunStarted = seconds;
+                SetRunTimeLocal(rm, seconds);
 
                 if (PhotonNetwork.IsMasterClient)
                     ((MonoBehaviourPun)rm).photonView.RPC("RPC_SyncTime", RpcTarget.All, new object[] { seconds, true });
@@ -1759,7 +1860,7 @@ namespace PeakMX
                 {
                     var field = typeof(DayNightManager).GetField("photonView", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                     if (field != null && field.GetValue(manager) is PhotonView view)
-                        view.RPC("RPCA_SyncTime", RpcTarget.All, new object[] { time });
+                        view.RPC("RPCA_SyncTime", RpcTarget.All, new object[] { manager.dayCount, time });
                 }
                 catch { }
 
@@ -2421,7 +2522,7 @@ namespace PeakMX
             {
                 if (c == null) return "Unknown";
                 if (!string.IsNullOrWhiteSpace(c.characterName)) return c.characterName;
-                var owner = ((MonoBehaviourPun)c).photonView?.Owner?.NickName;
+                var owner = OwnerOf(c)?.NickName;
                 return string.IsNullOrWhiteSpace(owner) ? "Unknown" : owner;
             }
             catch { return "Unknown"; }

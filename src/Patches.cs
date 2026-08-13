@@ -180,8 +180,8 @@ namespace PeakMX
                 if (__instance == null || !ModConfig.OverrideExpeditionTime)
                     return;
                 if (ModConfig.ExpeditionTimeSeconds <= 0.01f)
-                    ModConfig.ExpeditionTimeSeconds = __instance.timeSinceRunStarted;
-                __instance.timeSinceRunStarted = ModConfig.ExpeditionTimeSeconds;
+                    ModConfig.ExpeditionTimeSeconds = GameApi.RunTimeSeconds(__instance);
+                GameApi.SetRunTimeLocal(__instance, ModConfig.ExpeditionTimeSeconds);
             }
             catch (Exception e) { Plugin.Log?.LogWarning($"[RunTimerHoldPatch] {e.Message}"); }
         }
@@ -279,6 +279,24 @@ namespace PeakMX
                 }
             }
             catch (Exception e) { Plugin.Log?.LogWarning($"[NoFallingRagdollPatch] {e.Message}"); }
+            return true;
+        }
+    }
+
+    [HarmonyPatch(typeof(CharacterMovement), "CheckFallDamage")]
+    public static class NoFallDamagePatch
+    {
+        private static bool Prefix(Character ___character)
+        {
+            try
+            {
+                if (ModConfig.NoFallDamage && ___character != null && ___character.IsLocal)
+                {
+                    if (___character.data != null) ___character.data.fallSeconds = 0f;
+                    return false;
+                }
+            }
+            catch (Exception e) { Plugin.Log?.LogWarning($"[NoFallDamagePatch] {e.Message}"); }
             return true;
         }
     }

@@ -38,6 +38,16 @@ namespace PeakMX
             { ACHIEVEMENTTYPE.AppliedEsotericaBadge, new LinkedAchievement(STEAMSTATTYPE.GotBadge_AppliedEsoterica, 1) },
             { ACHIEVEMENTTYPE.MycoacrobaticsBadge, new LinkedAchievement(STEAMSTATTYPE.GotBadge_Mycoacrobatics, 1) },
             { ACHIEVEMENTTYPE.CryptogastronomyBadge, new LinkedAchievement(STEAMSTATTYPE.GotBadge_Cryptogastronomy, 1) },
+            { ACHIEVEMENTTYPE.WandererBadge, new LinkedAchievement(STEAMSTATTYPE.GotBadge_Wanderer, 1) },
+            { ACHIEVEMENTTYPE.BellringerBadge, new LinkedAchievement(STEAMSTATTYPE.GotBadge_Bellringer, 1) },
+            { ACHIEVEMENTTYPE.WellRestedBadge, new LinkedAchievement(STEAMSTATTYPE.GotBadge_WellRested, 1) },
+            { ACHIEVEMENTTYPE.JesterBadge, new LinkedAchievement(STEAMSTATTYPE.GotBadge_Jester, 1) },
+            { ACHIEVEMENTTYPE.HangGlidingBadge, new LinkedAchievement(STEAMSTATTYPE.GotBadge_HangGliding, 1) },
+            { ACHIEVEMENTTYPE.MedievalHistoryBadge, new LinkedAchievement(STEAMSTATTYPE.GotBadge_MedievalHistory, 1) },
+            { ACHIEVEMENTTYPE.LastResortBadge, new LinkedAchievement(STEAMSTATTYPE.GotBadge_LastResort, 1) },
+            { ACHIEVEMENTTYPE.ExorcistBadge, new LinkedAchievement(STEAMSTATTYPE.GotBadge_Exorcist, 1) },
+            { ACHIEVEMENTTYPE.ArcheryBadge, new LinkedAchievement(STEAMSTATTYPE.GotBadge_Archery, 1) },
+            { ACHIEVEMENTTYPE.RuleZeroBadge, new LinkedAchievement(STEAMSTATTYPE.GotBadge_RuleZero, 1) },
         };
         private static readonly Dictionary<ACHIEVEMENTTYPE, string> _ruNames = new Dictionary<ACHIEVEMENTTYPE, string>
         {
@@ -95,6 +105,16 @@ namespace PeakMX
             { ACHIEVEMENTTYPE.AppliedEsotericaBadge, "Прикладная эзотерика" },
             { ACHIEVEMENTTYPE.MycoacrobaticsBadge, "Микоакробатика" },
             { ACHIEVEMENTTYPE.CryptogastronomyBadge, "Криптогастрономия" },
+            { ACHIEVEMENTTYPE.WandererBadge, "Странник" },
+            { ACHIEVEMENTTYPE.BellringerBadge, "Звонарь" },
+            { ACHIEVEMENTTYPE.WellRestedBadge, "Хорошо отдохнул" },
+            { ACHIEVEMENTTYPE.JesterBadge, "Шут" },
+            { ACHIEVEMENTTYPE.HangGlidingBadge, "Дельтапланеризм" },
+            { ACHIEVEMENTTYPE.MedievalHistoryBadge, "Средневековая история" },
+            { ACHIEVEMENTTYPE.LastResortBadge, "Последний шанс" },
+            { ACHIEVEMENTTYPE.ExorcistBadge, "Экзорцист" },
+            { ACHIEVEMENTTYPE.ArcheryBadge, "Стрельба из лука" },
+            { ACHIEVEMENTTYPE.RuleZeroBadge, "Правило ноль" },
         };
         /// <summary>All real achievements (enum values except NONE).</summary>
         public static ACHIEVEMENTTYPE[] AllTypes
@@ -124,6 +144,7 @@ namespace PeakMX
                 case ACHIEVEMENTTYPE.Ascent5:
                 case ACHIEVEMENTTYPE.Ascent6:
                 case ACHIEVEMENTTYPE.Ascent7:
+                case ACHIEVEMENTTYPE.Ascent8:
                     return false;
                 default:
                     return true;

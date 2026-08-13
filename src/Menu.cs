@@ -12,7 +12,8 @@ namespace PeakMX
         // maxkir041's links — opened in the default browser on click.
         private const string UrlSteam = "https://steamcommunity.com/id/everyng/";
         private const string UrlTelegram = "https://t.me/maxkir041";
-        private const string UrlPlayground = "https://users.playground.ru/7293247/";
+        private const string UrlThunderstore = "https://thunderstore.io/c/peak/p/maxkir041/PEAK_MX/";
+        private const string UrlNexus = "https://www.nexusmods.com/peak/mods/179";
         private const string UrlDonate = "https://www.donationalerts.com/r/maxkir041";
         private const string UrlGitHub = "https://github.com/maxkir041/PEAK-MX";
         private const string UrlWebsite = "https://peak-mx.rkngov.com";
@@ -81,6 +82,7 @@ namespace PeakMX
         private static Vector2 _tipScroll;
         private static bool _closeRequested;
         private static bool _waitingForMenuKey;
+        private static bool _showAllDonors;
 
         private static string L(string key) => Localization.T(key);
         private static bool Ru => Localization.Current == Lang.Russian;
@@ -1106,11 +1108,12 @@ namespace PeakMX
                 GUILayout.Label(Ru ? "Ссылки:" : "Links:", Theme.Section);
                 GUILayout.BeginHorizontal();
                 LinkButton("GitHub", UrlGitHub);
-                LinkButton("Steam", UrlSteam);
-                LinkButton("Telegram", UrlTelegram);
+                LinkButton("Thunderstore", UrlThunderstore);
+                LinkButton("Nexus", UrlNexus);
                 GUILayout.EndHorizontal();
                 GUILayout.BeginHorizontal();
-                LinkButton("Playground", UrlPlayground);
+                LinkButton("Steam", UrlSteam);
+                LinkButton("Telegram", UrlTelegram);
                 LinkButton("Website", UrlWebsite);
                 GUILayout.EndHorizontal();
 
@@ -1121,6 +1124,7 @@ namespace PeakMX
                 GUILayout.Space(6);
                 DrawQr(150);
                 GUILayout.Label(QrHintText(), Theme.LabelDim);
+                DrawDonationSupportPanel(false);
 
                 GUILayout.Space(6);
                 bool showReminder = ModConfig.ShowDonateNotice.Value;
@@ -1162,11 +1166,12 @@ namespace PeakMX
             GUILayout.Label(Ru ? "Ссылки:" : "Links:", Theme.Section);
             GUILayout.BeginHorizontal();
             LinkButton("GitHub", UrlGitHub);
-            LinkButton("Steam", UrlSteam);
-            LinkButton("Telegram", UrlTelegram);
+            LinkButton("Thunderstore", UrlThunderstore);
+            LinkButton("Nexus", UrlNexus);
             GUILayout.EndHorizontal();
             GUILayout.BeginHorizontal();
-            LinkButton("Playground", UrlPlayground);
+            LinkButton("Steam", UrlSteam);
+            LinkButton("Telegram", UrlTelegram);
             LinkButton("Website", UrlWebsite);
             GUILayout.EndHorizontal();
 
@@ -1177,6 +1182,7 @@ namespace PeakMX
             GUILayout.Space(6);
             DrawQr(150);
             GUILayout.Label(QrHintText(), Theme.LabelDim);
+            DrawDonationSupportPanel(false);
 
             GUILayout.Space(6);
             bool show = ModConfig.ShowDonateNotice.Value;
@@ -1480,6 +1486,7 @@ namespace PeakMX
                 GameApi.CosmeticCategory.Outfit => Ru ? "Одежда" : "Outfit",
                 GameApi.CosmeticCategory.Hat => Ru ? "Шляпа" : "Hat",
                 GameApi.CosmeticCategory.Sash => Ru ? "Лента" : "Sash",
+                GameApi.CosmeticCategory.Medal => Ru ? "Медаль" : "Medal",
                 _ => category.ToString(),
             };
         }
@@ -1802,11 +1809,12 @@ namespace PeakMX
             GUILayout.Label(Ru ? "Ссылки" : "Links", Theme.Section);
             GUILayout.BeginHorizontal();
             LinkButton("GitHub", UrlGitHub);
-            LinkButton("Steam", UrlSteam);
-            LinkButton("Telegram", UrlTelegram);
+            LinkButton("Thunderstore", UrlThunderstore);
+            LinkButton("Nexus", UrlNexus);
             GUILayout.EndHorizontal();
             GUILayout.BeginHorizontal();
-            LinkButton("Playground", UrlPlayground);
+            LinkButton("Steam", UrlSteam);
+            LinkButton("Telegram", UrlTelegram);
             LinkButton("Website", UrlWebsite);
             GUILayout.EndHorizontal();
 
@@ -1817,6 +1825,7 @@ namespace PeakMX
             GUILayout.Space(6);
             DrawQr(150);
             GUILayout.Label(QrHintText(), Theme.LabelDim);
+            DrawDonationSupportPanel(false);
 
             GUILayout.Space(6);
             bool showReminder = ModConfig.ShowDonateNotice.Value;
@@ -1877,22 +1886,40 @@ namespace PeakMX
             GUILayout.BeginArea(new Rect(_contentRect.x + 12f, _contentRect.y + 10f, _contentRect.width - 24f, _contentRect.height - 24f - footerHeight));
             _scroll = GUILayout.BeginScrollView(_scroll);
             GUILayout.Space(2);
-            switch (_tab)
-            {
-                case 0: DrawCharacterModern(); break;
-                case 1: DrawCheatsModern3(); break;
-                case 2: DrawAdminModern(); break;
-                case 3: DrawInventoryModern3(); break;
-                case 4: DrawWorldModern(); break;
-                case 5: DrawBadgesModern(); break;
-                case 6: DrawCosmeticsModern3(); break;
-                case 7: DrawAboutModern(); break;
-            }
+            DrawCurrentModernTabSafe();
             GUILayout.Space(4);
             GUILayout.EndScrollView();
             GUILayout.EndArea();
             DrawTooltipFooter(new Rect(_contentRect.x + 12f, _contentRect.yMax - footerHeight - 10f, _contentRect.width - 24f, footerHeight));
             GUI.DragWindow(new Rect(0f, 0f, _rect.width, HeaderHeight));
+        }
+
+        private static void DrawCurrentModernTabSafe()
+        {
+            try
+            {
+                switch (_tab)
+                {
+                    case 0: DrawCharacterModern(); break;
+                    case 1: DrawCheatsModern3(); break;
+                    case 2: DrawAdminModern(); break;
+                    case 3: DrawInventoryModern3(); break;
+                    case 4: DrawWorldModern(); break;
+                    case 5: DrawBadgesModern(); break;
+                    case 6: DrawCosmeticsModern3(); break;
+                    case 7: DrawAboutModern(); break;
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogWarning($"[Menu:{Tabs[Mathf.Clamp(_tab, 0, Tabs.Length - 1)]}] {e}");
+                GUILayout.Label(Ru ? "Вкладка временно недоступна после обновления игры. Ошибка записана в лог BepInEx." : "This tab hit a game-update compatibility error. Details were written to the BepInEx log.", Theme.LabelDim);
+                if (GUILayout.Button(Ru ? "Обновить игроков/предметы" : "Refresh players/items", Theme.LinkBtn, GUILayout.Height(28)))
+                {
+                    GameApi.RefreshPlayers();
+                    GameApi.LoadItems();
+                }
+            }
         }
 
         private static void DrawCharacterModern()
@@ -3351,7 +3378,7 @@ namespace PeakMX
             Theme.EnsureBuilt();
             ApplyFont();
             float noticeWidth = 420f;
-            float noticeHeight = _langOpen ? Mathf.Min(560f, Screen.height - 80f) : 300f;
+            float noticeHeight = _langOpen ? Mathf.Min(660f, Screen.height - 80f) : Mathf.Min(520f, Screen.height - 80f);
             _noticeRect = GUILayout.Window(1, _noticeRect, DrawNoticeWindowModern, GUIContent.none, Theme.Window,
                 GUILayout.Width(noticeWidth), GUILayout.Height(noticeHeight));
         }
@@ -3375,6 +3402,7 @@ namespace PeakMX
             GUILayout.EndHorizontal();
             GUILayout.Space(6);
             DrawQr(_langOpen ? 118 : 92);
+            DrawDonationSupportPanel(true);
             GUILayout.Space(8);
             GUILayout.EndVertical(); GUILayout.Space(12);
             GUILayout.EndHorizontal();
@@ -3404,6 +3432,7 @@ namespace PeakMX
             GUILayout.EndHorizontal();
             GUILayout.Space(6);
             DrawQr(_langOpen ? 118 : 92);
+            DrawDonationSupportPanel(true);
             GUILayout.Space(8);
             GUILayout.EndVertical();
             GUILayout.Space(12);
@@ -3853,6 +3882,94 @@ namespace PeakMX
         {
             try { Application.OpenURL(url); }
             catch (Exception e) { Plugin.Log?.LogWarning($"OpenURL failed: {e.Message}"); }
+        }
+
+        private static void DrawDonationSupportPanel(bool compact)
+        {
+            DonationSupport.Refresh();
+            DonationGoal goal = DonationSupport.Goal;
+            var supporters = DonationSupport.Supporters;
+
+            GUILayout.Space(6);
+            GUILayout.Label(Ru ? "Спасибо за поддержку" : "Thanks for the support", Theme.Section);
+
+            if (goal.Target.HasValue && goal.Target.Value > 0.01d)
+            {
+                double percent = goal.Percent ?? (goal.Raised / goal.Target.Value * 100d);
+                GUILayout.Label(
+                    (Ru ? $"За {DonationSupport.HiddenOlderThanDays} дней: " : $"Last {DonationSupport.HiddenOlderThanDays} days: ")
+                    + FormatDonationAmount(goal.Raised, goal.Currency)
+                    + " / "
+                    + FormatDonationAmount(goal.Target.Value, goal.Currency)
+                    + " ("
+                    + percent.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)
+                    + "%)",
+                    Theme.LabelDim);
+                DrawDonationProgressBar((float)Mathf.Clamp((float)(percent / 100d), 0f, 1f), compact ? 10f : 12f);
+            }
+            else if (goal.Raised > 0.01d)
+            {
+                GUILayout.Label((Ru ? "Уже собрано: " : "Raised: ") + FormatDonationAmount(goal.Raised, goal.Currency), Theme.LabelDim);
+            }
+
+            GUILayout.Label(
+                Ru
+                    ? $"Учитываются донаты за {DonationSupport.HiddenOlderThanDays} дней от {DonationSupport.MinPublicAmount:0} RUB; суммы переведены в валюту интерфейса."
+                    : $"Counting donations from the last {DonationSupport.HiddenOlderThanDays} days from {DonationSupport.MinPublicAmount:0} RUB; amounts are converted to the interface currency.",
+                Theme.LabelDim);
+
+            if (!DonationSupport.HasLoaded && DonationSupport.IsLoading)
+            {
+                GUILayout.Label(Ru ? "Загружаю список донатеров..." : "Loading supporters...", Theme.LabelDim);
+                return;
+            }
+
+            int count = supporters != null ? supporters.Count : 0;
+            if (count <= 0)
+            {
+                GUILayout.Label(Ru ? "Пока нет донатов для списка спасибо." : "No recent supporters to show yet.", Theme.LabelDim);
+                return;
+            }
+
+            int max = _showAllDonors ? count : Mathf.Min(10, count);
+            for (int i = 0; i < max; i++)
+            {
+                var supporter = supporters[i];
+                GUILayout.Label(
+                    (i + 1)
+                    + ". "
+                    + supporter.Name
+                    + " - "
+                    + FormatDonationAmount(supporter.Amount, supporter.Currency),
+                    Theme.Label);
+            }
+
+            if (count > 10)
+            {
+                string text = _showAllDonors
+                    ? (Ru ? "Свернуть список" : "Collapse list")
+                    : (Ru ? $"Показать всех ({count})" : $"Show all ({count})");
+                if (GUILayout.Button(text, Theme.LinkBtn, GUILayout.Height(26)))
+                    _showAllDonors = !_showAllDonors;
+            }
+        }
+
+        private static string FormatDonationAmount(double amount, string currency)
+        {
+            string value = amount.ToString(amount >= 100 ? "0" : "0.##", System.Globalization.CultureInfo.InvariantCulture);
+            string cur = string.IsNullOrWhiteSpace(currency) ? "RUB" : currency;
+            if (string.Equals(cur, "RUB", StringComparison.OrdinalIgnoreCase))
+                cur = "RUB";
+            return value + " " + cur;
+        }
+
+        private static void DrawDonationProgressBar(float fill, float height)
+        {
+            Rect rect = GUILayoutUtility.GetRect(1f, height, GUILayout.ExpandWidth(true));
+            GUI.Box(rect, GUIContent.none, Theme.Panel9);
+            Rect inner = new Rect(rect.x + 2f, rect.y + 2f, Mathf.Max(0f, (rect.width - 4f) * fill), Mathf.Max(0f, rect.height - 4f));
+            if (inner.width > 1f)
+                GUI.DrawTexture(inner, Theme.Tex(Theme.DonateHi));
         }
 
         // ---------- donation QR (lazy-loaded from the web, no extra dependencies) ----------

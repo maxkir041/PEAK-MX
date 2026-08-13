@@ -29,6 +29,54 @@ function corsHeaders() {
 }
 
 const PUBLIC_CLIENT_TOKEN = "peak-mx-public-v1";
+const DONATION_DEFAULT_TARGET_RUB = 20000;
+const DONATION_RATE_FALLBACK_FROM_RUB = {
+  RUB: 1,
+  USD: 0.0125,
+  EUR: 0.0108,
+  UAH: 0.52,
+  CNY: 0.09,
+  TWD: 0.38,
+  JPY: 1.86,
+  KRW: 17.4,
+  BRL: 0.068,
+  PLN: 0.046,
+  TRY: 0.51,
+};
+
+const DONATION_CURRENCY_BY_LANG = {
+  english: "USD",
+  en: "USD",
+  russian: "RUB",
+  ru: "RUB",
+  ukrainian: "UAH",
+  uk: "UAH",
+  ua: "UAH",
+  chinesesimplified: "CNY",
+  zhcn: "CNY",
+  chinese: "CNY",
+  chinesetraditional: "TWD",
+  zhtw: "TWD",
+  japanese: "JPY",
+  ja: "JPY",
+  korean: "KRW",
+  ko: "KRW",
+  spanish: "EUR",
+  es: "EUR",
+  portuguesebr: "BRL",
+  ptbr: "BRL",
+  portuguese: "BRL",
+  german: "EUR",
+  de: "EUR",
+  french: "EUR",
+  fr: "EUR",
+  italian: "EUR",
+  it: "EUR",
+  polish: "PLN",
+  pl: "PLN",
+  turkish: "TRY",
+  tr: "TRY",
+};
 
 function withCors(response) {
   const headers = new Headers(response.headers);
@@ -95,6 +143,640 @@ function readSteamIdParam(url) {
 function numberOrNull(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function envNumber(env, ...keys) {
+  for (const key of keys) {
+    const value = numberOrNull(env[key]);
+    if (value != null)
+      return value;
+  }
+  return null;
+}
+
+function envText(env, fallback, ...keys) {
+  for (const key of keys) {
+    const value = clipText(env[key], 256);
+    if (value)
+      return value;
+  }
+  return fallback;
+}
+
+function parseManualSupporters(value) {
+  return String(value || "")
+    .split(/[,\n;]/)
+    .map((entry) => {
+      const parts = String(entry || "").split("|").map((part) => part.trim());
+      let name = parts[0] || "";
+      let amount = numberOrNull(parts[1]);
+      let currency = parts[2] || null;
+      const colon = name.match(/^(.*?):\s*(-?\d+(?:\.\d+)?)\s*([a-zA-Z]{3})?$/);
+      if (colon) {
+        name = colon[1];
+        amount = numberOrNull(colon[2]);
+        currency = currency || colon[3] || null;
+      }
+      name = clipText(name, 80);
+      if (!name)
+        return null;
+      return {
+        name,
+        amount: formatDonationAmount(amount),
+        currency: donationCurrency(currency, null),
+        count: amount ? 1 : 0,
+        lastDonationAt: new Date().toISOString(),
+      };
+    })
+    .filter(Boolean);
+}
+
+function publicDonationName(value) {
+  const name = clipText(value, 80);
+  return name || "Anonymous";
+}
+
+function formatDonationAmount(value) {
+  const number = numberOrNull(value);
+  return number == null ? 0 : Math.max(0, number);
+}
+
+function donationCurrency(value, fallback = "RUB") {
+  const currency = clipText(value, 12);
+  return currency ? currency.toUpperCase() : fallback;
+}
+
+function compactLangKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function donationCurrencyForLang(value, fallback = "RUB") {
+  const textValue = String(value || "").trim();
+  const upper = textValue.toUpperCase();
+  if (/^[A-Z]{3}$/.test(upper))
+    return upper;
+
+  const key = compactLangKey(textValue);
+  return DONATION_CURRENCY_BY_LANG[key] || fallback;
+}
+
+function parseCurrencyRates(value) {
+  if (!value)
+    return null;
+
+  try {
+    const parsed = JSON.parse(String(value));
+    const rates = {};
+    for (const [currency, rate] of Object.entries(parsed || {})) {
+      const normalized = donationCurrency(currency, null);
+      const number = numberOrNull(rate);
+      if (normalized && number != null && number > 0)
+        rates[normalized] = number;
+    }
+    return Object.keys(rates).length ? rates : null;
+  } catch {
+    const rates = {};
+    for (const entry of String(value).split(/[,\n;]/)) {
+      const match = entry.trim().match(/^([a-zA-Z]{3})\s*[:=]\s*(-?\d+(?:\.\d+)?)$/);
+      if (!match)
+        continue;
+      const number = numberOrNull(match[2]);
+      if (number != null && number > 0)
+        rates[match[1].toUpperCase()] = number;
+    }
+    return Object.keys(rates).length ? rates : null;
+  }
+}
+
+async function donationRatesFromRub(env) {
+  const configured = parseCurrencyRates(env.DONATION_CURRENCY_RATES || env.DONATIONALERTS_CURRENCY_RATES);
+  if (configured)
+    return { ...DONATION_RATE_FALLBACK_FROM_RUB, ...configured, RUB: 1 };
+
+  try {
+    const response = await fetch(env.DONATION_CURRENCY_RATE_URL || "https://open.er-api.com/v6/latest/RUB", {
+      headers: {
+        "accept": "application/json",
+      },
+      cf: {
+        cacheTtl: 3600,
+        cacheEverything: true,
+      },
+    });
+    if (!response.ok)
+      throw new Error(`currency_${response.status}`);
+
+    const body = await response.json();
+    const rawRates = body?.rates || body?.conversion_rates || {};
+    const rates = {};
+    for (const [currency, rate] of Object.entries(rawRates)) {
+      const normalized = donationCurrency(currency, null);
+      const number = numberOrNull(rate);
+      if (normalized && number != null && number > 0)
+        rates[normalized] = number;
+    }
+    return { ...DONATION_RATE_FALLBACK_FROM_RUB, ...rates, RUB: 1 };
+  } catch {
+    return { ...DONATION_RATE_FALLBACK_FROM_RUB };
+  }
+}
+
+function convertDonationAmount(amount, sourceCurrency, targetCurrency, rates) {
+  const value = formatDonationAmount(amount);
+  const source = donationCurrency(sourceCurrency, "RUB");
+  const target = donationCurrency(targetCurrency, source);
+  if (source === target)
+    return value;
+
+  const sourceRate = numberOrNull(rates?.[source]);
+  const targetRate = numberOrNull(rates?.[target]);
+  if (!sourceRate || !targetRate || sourceRate <= 0 || targetRate <= 0)
+    return null;
+
+  return value / sourceRate * targetRate;
+}
+
+function donationEntry(name, amount, currency, createdAt = null) {
+  const normalizedName = publicDonationName(name);
+  const normalizedAmount = formatDonationAmount(amount);
+  if (normalizedAmount <= 0)
+    return null;
+  return {
+    name: normalizedName,
+    amount: normalizedAmount,
+    currency: donationCurrency(currency, "RUB"),
+    createdAt,
+  };
+}
+
+function donationEntryFromDonation(donation) {
+  if (!donation || typeof donation !== "object")
+    return null;
+
+  return donationEntry(
+    donation?.username || donation?.name || donation?.user_name || donation?.display_name,
+    readDonationAmount(donation),
+    readDonationCurrency(donation),
+    readDonationDate(donation)
+  );
+}
+
+function donationEntries(donations, manualSupporters = []) {
+  const entries = [];
+  for (const supporter of manualSupporters) {
+    const entry = donationEntry(supporter?.name, supporter?.amount, supporter?.currency, supporter?.lastDonationAt);
+    if (entry)
+      entries.push(entry);
+  }
+  for (const donation of donations) {
+    const entry = donationEntryFromDonation(donation);
+    if (entry)
+      entries.push(entry);
+  }
+  return entries;
+}
+
+function filterRecentDonationEntries(entries, cutoffMs, minRubAmount, rates) {
+  return (entries || []).filter((entry) => {
+    if (entry.createdAt && cutoffMs > 0) {
+      const time = Date.parse(entry.createdAt);
+      if (Number.isFinite(time) && time < cutoffMs)
+        return false;
+    }
+
+    const rubAmount = convertDonationAmount(entry.amount, entry.currency, "RUB", rates);
+    return rubAmount == null || rubAmount >= minRubAmount;
+  });
+}
+
+function aggregateDonationEntries(entries, displayCurrency, rates) {
+  const map = new Map();
+  for (const entry of entries || []) {
+    const converted = convertDonationAmount(entry.amount, entry.currency, displayCurrency, rates);
+    const amount = converted == null ? entry.amount : converted;
+    const currency = converted == null ? entry.currency : displayCurrency;
+    const key = entry.name.toLocaleLowerCase("en-US");
+    const old = map.get(key) || {
+      name: entry.name,
+      amount: 0,
+      currency,
+      count: 0,
+      lastDonationAt: null,
+    };
+    old.amount += amount;
+    old.count += 1;
+    old.currency = old.currency || currency;
+    if (entry.createdAt && (!old.lastDonationAt || String(entry.createdAt) > String(old.lastDonationAt)))
+      old.lastDonationAt = entry.createdAt;
+    map.set(key, old);
+  }
+
+  return Array.from(map.values())
+    .sort((a, b) => String(b.lastDonationAt || "").localeCompare(String(a.lastDonationAt || "")) || (b.amount - a.amount) || a.name.localeCompare(b.name));
+}
+
+function sumDonationEntries(entries, currency, rates) {
+  return (entries || []).reduce((sum, entry) => {
+    const converted = convertDonationAmount(entry.amount, entry.currency, currency, rates);
+    return converted == null ? sum : sum + converted;
+  }, 0);
+}
+
+function aggregateDonationSupporters(donations, manualSupporters = [], cutoffMs = 0, minAmount = 0) {
+  const map = new Map();
+  const touch = (name, amount = 0, currency = null, createdAt = null) => {
+    const normalizedCurrency = donationCurrency(currency, null);
+    if ((!normalizedCurrency || normalizedCurrency === "RUB") && amount < minAmount)
+      return;
+
+    if (createdAt && cutoffMs > 0) {
+      const time = Date.parse(createdAt);
+      if (Number.isFinite(time) && time < cutoffMs)
+        return;
+    }
+
+    const key = name.toLocaleLowerCase("en-US");
+    const old = map.get(key) || {
+      name,
+      amount: 0,
+      currency,
+      count: 0,
+      lastDonationAt: null,
+    };
+    old.amount += amount;
+    old.count += amount > 0 ? 1 : 0;
+    old.currency = old.currency || normalizedCurrency;
+    if (createdAt && (!old.lastDonationAt || String(createdAt) > String(old.lastDonationAt)))
+      old.lastDonationAt = createdAt;
+    map.set(key, old);
+  };
+
+  for (const supporter of manualSupporters)
+    touch(supporter.name, supporter.amount || 0, supporter.currency || null, supporter.lastDonationAt || null);
+
+  for (const donation of donations) {
+    const name = publicDonationName(donation?.username || donation?.name || donation?.user_name || donation?.display_name);
+    touch(
+      name,
+      formatDonationAmount(readDonationAmount(donation)),
+      donationCurrency(readDonationCurrency(donation), null),
+      readDonationDate(donation)
+    );
+  }
+
+  return Array.from(map.values())
+    .sort((a, b) => String(b.lastDonationAt || "").localeCompare(String(a.lastDonationAt || "")) || (b.amount - a.amount) || a.name.localeCompare(b.name));
+}
+
+function looksLikeOAuthToken(value) {
+  const token = String(value || "").trim().replace(/^bearer\s+/i, "");
+  return token.length > 80 || token.split(".").length >= 3 || token.startsWith("eyJ");
+}
+
+function readFirstNumber(...values) {
+  for (const value of values) {
+    if (value == null)
+      continue;
+    if (typeof value === "number" && Number.isFinite(value))
+      return value;
+    const textValue = String(value).replace(",", ".").replace(/\s+/g, "");
+    const match = textValue.match(/-?\d+(?:\.\d+)?/);
+    if (!match)
+      continue;
+    const parsed = Number(match[0]);
+    if (Number.isFinite(parsed))
+      return parsed;
+  }
+  return null;
+}
+
+function readCurrencyFromText(value) {
+  const textValue = String(value || "").toUpperCase();
+  const match = textValue.match(/\b([A-Z]{3})\b|₽|РУБ/);
+  if (!match)
+    return null;
+  if (match[0] === "₽" || match[0] === "РУБ")
+    return "RUB";
+  return match[1] || null;
+}
+
+function readDonationAmount(donation) {
+  return readFirstNumber(
+    donation?.amount,
+    donation?.amount_main,
+    donation?.amountMain,
+    donation?.amount_formatted,
+    donation?.amountFormatted,
+    donation?.sum,
+    donation?.value
+  );
+}
+
+function readDonationCurrency(donation) {
+  return donationCurrency(
+    donation?.currency ||
+    donation?.currency_code ||
+    donation?.currencyCode ||
+    readCurrencyFromText(donation?.amount_formatted) ||
+    readCurrencyFromText(donation?.amountFormatted),
+    null
+  );
+}
+
+function readDonationDate(donation) {
+  const raw = donation?.created_at ||
+    donation?.createdAt ||
+    donation?.date_created ||
+    donation?.dateCreated ||
+    donation?.created ||
+    donation?.time ||
+    null;
+  if (!raw)
+    return null;
+  if (typeof raw === "number") {
+    const ms = raw > 100000000000 ? raw : raw * 1000;
+    return new Date(ms).toISOString();
+  }
+  const value = String(raw);
+  const parsed = Date.parse(value);
+  if (Number.isFinite(parsed))
+    return new Date(parsed).toISOString();
+  const normalized = Date.parse(value.replace(" ", "T") + "Z");
+  return Number.isFinite(normalized) ? new Date(normalized).toISOString() : value;
+}
+
+function donationAlertsRows(body) {
+  const candidates = [
+    body?.data?.data,
+    body?.data,
+    body?.donations,
+    body?.alerts,
+    body?.items,
+    body?.result,
+    body?.response,
+    body,
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate))
+      return candidate;
+    if (candidate && typeof candidate === "object" && !Array.isArray(candidate) && candidate.id != null)
+      return [candidate];
+  }
+
+  return [];
+}
+
+function normalizeDonationRow(row) {
+  if (!row || typeof row !== "object")
+    return null;
+
+  const name = clipText(
+    row.username ||
+    row.name ||
+    row.user_name ||
+    row.display_name ||
+    row.user?.display_name ||
+    row.user?.name ||
+    null,
+    80
+  );
+  const amount = readDonationAmount(row);
+  if (amount == null)
+    return null;
+
+  return {
+    ...row,
+    username: name || "Anonymous",
+    amount,
+    currency: readDonationCurrency(row),
+    created_at: readDonationDate(row),
+  };
+}
+
+function sanitizeEndpointLabel(value) {
+  return String(value || "api").replace(/[^a-z0-9_-]/gi, "_").slice(0, 40) || "api";
+}
+
+async function fetchDonationAlertsJson(endpoint, accessToken, params = {}) {
+  const normalizedEndpoint = String(endpoint || "").replace(/^\/+/, "");
+  const url = new URL(`https://www.donationalerts.com/api/v1/${normalizedEndpoint}`);
+  for (const [key, value] of Object.entries(params)) {
+    if (value != null)
+      url.searchParams.set(key, String(value));
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      "authorization": `Bearer ${accessToken}`,
+      "accept": "application/json",
+    },
+  });
+  if (!response.ok)
+    throw new Error(`donationalerts_${sanitizeEndpointLabel(normalizedEndpoint)}_${response.status}`);
+  return response.json();
+}
+
+async function fetchDonationAlertsAccessToken(widgetToken) {
+  try {
+    const tokenUrl = new URL("https://www.donationalerts.com/api/v1/token/widget");
+    tokenUrl.searchParams.set("token", widgetToken);
+    const tokenResponse = await fetch(tokenUrl, {
+      headers: {
+        "accept": "application/json",
+      },
+    });
+    if (tokenResponse.ok) {
+      const tokenBody = await tokenResponse.json();
+      const apiToken = clipText(tokenBody?.data?.token || tokenBody?.token, 4096);
+      if (apiToken)
+        return apiToken;
+    }
+  } catch {
+    // Fall through to the older widget page crawler below.
+  }
+
+  const url = new URL("https://www.donationalerts.com/widget/alerts");
+  url.searchParams.set("token", widgetToken);
+
+  const response = await fetch(url, {
+    headers: {
+      "accept": "text/html,application/xhtml+xml",
+    },
+  });
+  if (!response.ok)
+    throw new Error(`donationalerts_widget_${response.status}`);
+
+  const body = await response.text();
+  const match = body.match(/access_token[\s\u00a0]*=[\s\u00a0]*(['"])([-.0-9A-Z\\_a-z]+)\1/);
+  const accessToken = match ? match[2].replace(/\\/g, "") : "";
+  if (!accessToken)
+    throw new Error("donationalerts_widget_no_access_token");
+  return accessToken;
+}
+
+async function fetchDonationAlertsInternalJson(endpoint, widgetToken, params = {}) {
+  const normalizedEndpoint = String(endpoint || "").replace(/^\/+/, "");
+  const url = new URL(`https://www.donationalerts.com/api/${normalizedEndpoint}`);
+  for (const [key, value] of Object.entries(params)) {
+    if (value != null)
+      url.searchParams.set(key, String(value));
+  }
+  url.searchParams.set("token", widgetToken);
+
+  const response = await fetch(url, {
+    headers: {
+      "accept": "application/json,text/plain,*/*",
+    },
+  });
+  if (!response.ok)
+    throw new Error(`donationalerts_internal_${sanitizeEndpointLabel(normalizedEndpoint)}_${response.status}`);
+
+  const raw = (await response.text()).trim();
+  const unwrapped = raw.replace(/^\(([\s\S]+)\)$/, "$1");
+  const body = JSON.parse(unwrapped);
+  if (String(body?.status || "").toLowerCase() === "error")
+    throw new Error(`donationalerts_internal_${sanitizeEndpointLabel(normalizedEndpoint)}_error`);
+  return body;
+}
+
+async function fetchDonationAlertsDonations(accessToken, fetchPages) {
+  const donations = [];
+  for (let page = 1; page <= fetchPages; page++) {
+    const body = await fetchDonationAlertsJson("alerts/donations", accessToken, {
+      limit: 100,
+      page,
+    });
+    const rows = donationAlertsRows(body).map(normalizeDonationRow).filter(Boolean);
+    donations.push(...rows);
+    if (rows.length < 100)
+      break;
+  }
+  return donations;
+}
+
+async function fetchDonationAlertsWidgetDonations(widgetToken) {
+  const body = await fetchDonationAlertsInternalJson("getwidgetdata", widgetToken);
+  const rows = Array.isArray(body?.alerts) ? body.alerts : donationAlertsRows(body);
+  return rows.map(normalizeDonationRow).filter(Boolean);
+}
+
+function readDonationGoalId(value) {
+  const textValue = String(value || "").trim();
+  if (!textValue)
+    return null;
+  try {
+    const url = new URL(textValue);
+    const idParam = url.searchParams.get("id");
+    if (idParam && /^\d+$/.test(idParam))
+      return idParam;
+    const pathMatch = url.pathname.match(/\/widget\/(?:goal|donation-goal)\/(\d+)/i);
+    if (pathMatch)
+      return pathMatch[1];
+  } catch {
+    // Not a URL, maybe a raw numeric id.
+  }
+  const match = textValue.match(/\d{3,}/);
+  return match ? match[0] : null;
+}
+
+function readDonationGoalToken(value, fallbackToken) {
+  try {
+    const url = new URL(String(value || ""));
+    return clipText(url.searchParams.get("token"), 256) || fallbackToken;
+  } catch {
+    return fallbackToken;
+  }
+}
+
+async function fetchDonationAlertsGoalFromWidget(widgetToken, goalRef, fallbackTitle, fallbackCurrency) {
+  const goalId = readDonationGoalId(goalRef);
+  if (!goalId)
+    return null;
+
+  const token = readDonationGoalToken(goalRef, widgetToken);
+  const pageUrl = new URL(`https://www.donationalerts.com/widget/goal/${goalId}`);
+  pageUrl.searchParams.set("token", token);
+  const response = await fetch(pageUrl, {
+    headers: {
+      "accept": "text/html,application/xhtml+xml",
+    },
+  });
+  if (!response.ok)
+    throw new Error(`donationalerts_goal_widget_${response.status}`);
+
+  const page = await response.text();
+  const pageToken = page.match(/token_widget_streamer\s*=\s*(['"])([^'"]+)\1/)?.[2] ||
+    await fetchDonationAlertsAccessToken(token);
+  const pageGoalId = page.match(/donation_goal_widget_id\s*=\s*(['"])?(\d+)\1/)?.[2] || goalId;
+  const ids = Array.from(new Set([goalId, pageGoalId].filter(Boolean)));
+
+  for (const id of ids) {
+    try {
+      const body = await fetchDonationAlertsJson(`donationgoal/${id}`, pageToken, {
+        include_timestamps: 1,
+      });
+      const goal = normalizeDonationGoal(body?.data || body, fallbackTitle, fallbackCurrency);
+      if (goal)
+        return goal;
+    } catch {
+      // Try the next id variant parsed from the widget page.
+    }
+  }
+
+  throw new Error("donationalerts_goal_not_found");
+}
+
+function readGoalRow(body) {
+  const rows = donationAlertsRows(body);
+  return rows.find((row) => row?.is_active === true || row?.is_active === 1 || row?.active === true || row?.active === 1) ||
+    rows[0] ||
+    null;
+}
+
+function normalizeDonationGoal(row, fallbackTitle, fallbackCurrency) {
+  if (!row || typeof row !== "object")
+    return null;
+
+  const target = readFirstNumber(
+    row.target,
+    row.goal,
+    row.amount,
+    row.goal_amount,
+    row.goalAmount,
+    row.amount_goal,
+    row.amountGoal,
+    row.target_amount,
+    row.targetAmount,
+    row.required_amount,
+    row.requiredAmount
+  );
+  const raised = readFirstNumber(
+    row.raised,
+    row.current,
+    row.progress,
+    row.sum,
+    row.collected,
+    row.raised_amount,
+    row.raisedAmount,
+    row.current_amount,
+    row.currentAmount,
+    row.collected_amount,
+    row.collectedAmount,
+    row.amount_collected,
+    row.amountCollected
+  );
+  const percent = readFirstNumber(row.percent, row.percentage, row.progress_percent, row.progressPercent);
+
+  return {
+    title: clipText(row.title || row.name || row.label || fallbackTitle, 160) || fallbackTitle,
+    raised: raised == null ? 0 : Math.max(0, raised),
+    target: target == null ? null : Math.max(0, target),
+    currency: donationCurrency(row.currency || row.currency_code || row.currencyCode, fallbackCurrency),
+    percent: percent == null ? null : Math.max(0, Math.min(999, percent)),
+  };
 }
 
 function jsonForDb(value, max = 16384) {
@@ -1134,7 +1816,7 @@ async function handleUpload(request, env, ctx, forcedKind = null) {
 
 async function handleStats(request, env) {
   if (!mustGetAdminToken(request, env))
-    return json({ ok: false, error: "forbidden" }, 403);
+    return handlePublicSummary(request, env);
 
   const url = new URL(request.url);
   const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || 20)));
@@ -1304,12 +1986,14 @@ async function handleStats(request, env) {
 }
 
 async function handlePublicSummary(request, env) {
-  const [installs, online, active24h, active30d, launches, byDay, countries, cheats] = await Promise.all([
+  const [installs, online, active24h, active30d, launches, ret1, ret7, byDay, countries, cheats] = await Promise.all([
     env.DB.prepare("SELECT COUNT(*) AS count FROM installs").first(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM installs WHERE last_seen_at >= datetime('now', '-5 minutes')").first(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM installs WHERE last_seen_at >= datetime('now', '-1 day')").first(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM installs WHERE last_seen_at >= datetime('now', '-30 days')").first(),
     env.DB.prepare("SELECT COALESCE(SUM(value), 0) AS count FROM daily_counters WHERE metric = 'ping'").first(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM installs WHERE julianday(last_seen_at) - julianday(first_seen_at) >= 1").first(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM installs WHERE julianday(last_seen_at) - julianday(first_seen_at) >= 7").first(),
     env.DB.prepare(
       `SELECT day AS date, SUM(value) AS count
         FROM daily_counters
@@ -1348,6 +2032,8 @@ async function handlePublicSummary(request, env) {
     dau,
     mau,
     launches: Number(launches?.count || 0),
+    ret1: Number(ret1?.count || 0),
+    ret7: Number(ret7?.count || 0),
     byDay: byDay?.results || [],
     countries: countries?.results || [],
     cheats: (cheats?.results || []).map((row) => ({
@@ -1361,6 +2047,144 @@ async function handlePublicSummary(request, env) {
     },
     updated: new Date().toISOString(),
     now: new Date().toISOString(),
+  });
+}
+
+async function handleDonations(request, env) {
+  const url = new URL(request.url);
+  const goalTitle = envText(env, "PEAK-MX support", "DONATION_GOAL_TITLE", "DONATIONALERTS_GOAL_TITLE");
+  const configuredGoalTarget = envNumber(env, "DONATION_GOAL_TARGET", "DONATIONALERTS_GOAL_TARGET");
+  const manualRaised = envNumber(env, "DONATION_GOAL_RAISED", "DONATIONALERTS_GOAL_RAISED");
+  const defaultCurrency = donationCurrency(envText(env, "RUB", "DONATION_GOAL_CURRENCY", "DONATIONALERTS_GOAL_CURRENCY"), "RUB");
+  const manualSupporters = parseManualSupporters(env.DONATION_SUPPORTERS || env.DONATIONALERTS_SUPPORTERS);
+  const goalRef = envText(env, "", "DONATIONALERTS_GOAL_URL", "DONATION_GOAL_URL", "DONATIONALERTS_GOAL_ID", "DONATION_GOAL_ID");
+  const configuredToken = String(env.DONATIONALERTS_TOKEN || env.DONATION_ALERTS_TOKEN || "").trim();
+  const oauthToken = String(
+    env.DONATIONALERTS_OAUTH_TOKEN ||
+    env.DONATION_ALERTS_OAUTH_TOKEN ||
+    (looksLikeOAuthToken(configuredToken) ? configuredToken : "")
+  ).trim().replace(/^bearer\s+/i, "");
+  const widgetToken = String(
+    env.DONATIONALERTS_WIDGET_TOKEN ||
+    env.DONATION_ALERTS_WIDGET_TOKEN ||
+    (!looksLikeOAuthToken(configuredToken) ? configuredToken : "")
+  ).trim();
+  const requestedLang = url.searchParams.get("lang") || url.searchParams.get("language") || url.searchParams.get("locale") || "";
+  const displayCurrency = donationCurrencyForLang(url.searchParams.get("currency") || requestedLang, defaultCurrency);
+  const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || 100)));
+  const fetchPages = Math.max(1, Math.min(10, Number(env.DONATION_FETCH_PAGES || env.DONATIONALERTS_FETCH_PAGES || 5)));
+  const visibleDays = Math.max(1, Math.min(365, Number(env.DONATION_VISIBLE_DAYS || env.DONATIONALERTS_VISIBLE_DAYS || 60)));
+  const minPublicAmount = Math.max(0, envNumber(env, "DONATION_MIN_PUBLIC_AMOUNT", "DONATIONALERTS_MIN_PUBLIC_AMOUNT") ?? 100);
+  const defaultTargetRub = Math.max(1, envNumber(env, "DONATION_DEFAULT_TARGET_RUB", "DONATIONALERTS_DEFAULT_TARGET_RUB") ?? DONATION_DEFAULT_TARGET_RUB);
+  const cutoffMs = Date.now() - visibleDays * 24 * 60 * 60 * 1000;
+  const rates = await donationRatesFromRub(env);
+
+  let donations = [];
+  let donationGoal = null;
+  let source = oauthToken ? "donationalerts_oauth" : (widgetToken ? "donationalerts_widget" : "manual");
+  const fetchErrors = [];
+
+  const tryFetchGoal = async (accessToken, recordError = false) => {
+    try {
+      const body = await fetchDonationAlertsJson("donationgoal", accessToken, {
+        is_active: 0,
+        include_timestamps: 1,
+      });
+      return normalizeDonationGoal(readGoalRow(body), goalTitle, defaultCurrency);
+    } catch (error) {
+      if (recordError)
+        fetchErrors.push(error instanceof Error ? error.message : String(error));
+      return null;
+    }
+  };
+
+  if (oauthToken) {
+    try {
+      donations = await fetchDonationAlertsDonations(oauthToken, fetchPages);
+      donationGoal = await tryFetchGoal(oauthToken, true);
+      source = "donationalerts_oauth";
+    } catch (error) {
+      fetchErrors.push(error instanceof Error ? error.message : String(error));
+      donations = [];
+    }
+  }
+
+  if (widgetToken && donations.length <= 0) {
+    try {
+      let accessToken = "";
+      try {
+        accessToken = await fetchDonationAlertsAccessToken(widgetToken);
+        donations = await fetchDonationAlertsDonations(accessToken, fetchPages);
+      } catch {
+        donations = await fetchDonationAlertsWidgetDonations(widgetToken);
+      }
+
+      if (goalRef) {
+        try {
+          donationGoal = await fetchDonationAlertsGoalFromWidget(widgetToken, goalRef, goalTitle, defaultCurrency);
+        } catch (error) {
+          fetchErrors.push(error instanceof Error ? error.message : String(error));
+        }
+      } else if (accessToken) {
+        donationGoal = await tryFetchGoal(accessToken, false);
+      }
+      source = "donationalerts_widget";
+    } catch (error) {
+      fetchErrors.push(error instanceof Error ? error.message : String(error));
+      source = "manual";
+      donations = [];
+    }
+  }
+
+  const recentEntries = filterRecentDonationEntries(donationEntries(donations, manualSupporters), cutoffMs, minPublicAmount, rates);
+  const supporters = aggregateDonationEntries(recentEntries, displayCurrency, rates)
+    .slice(0, limit)
+    .map((supporter) => ({
+      name: supporter.name,
+      amount: Number(supporter.amount.toFixed(2)),
+      currency: supporter.currency || displayCurrency,
+      count: supporter.count,
+      lastDonationAt: supporter.lastDonationAt,
+    }));
+
+  const baseGoalCurrency = configuredGoalTarget != null
+    ? defaultCurrency
+    : (donationGoal?.target ? donationCurrency(donationGoal?.currency || defaultCurrency, defaultCurrency) : "RUB");
+  const baseGoalTarget = configuredGoalTarget != null
+    ? configuredGoalTarget
+    : (donationGoal?.target && donationGoal.target > 0 ? donationGoal.target : defaultTargetRub);
+  const baseRaised = manualRaised != null
+    ? manualRaised
+    : (donationGoal?.target && donationGoal?.raised > 0 ? donationGoal.raised : sumDonationEntries(recentEntries, baseGoalCurrency, rates));
+  const convertedTarget = convertDonationAmount(baseGoalTarget, baseGoalCurrency, displayCurrency, rates);
+  const convertedRaised = convertDonationAmount(baseRaised, baseGoalCurrency, displayCurrency, rates);
+  const goalTarget = convertedTarget == null ? baseGoalTarget : convertedTarget;
+  const raised = convertedRaised == null ? baseRaised : convertedRaised;
+  const goalCurrency = convertedTarget == null || convertedRaised == null ? baseGoalCurrency : displayCurrency;
+  const percent = goalTarget && goalTarget > 0 ? Math.max(0, Math.min(999, raised / goalTarget * 100)) : null;
+
+  const response = {
+    ok: true,
+    service: "peak-mx-telemetry",
+    public: true,
+    source,
+    goal: {
+      title: donationGoal?.title || goalTitle,
+      raised: Number((raised || 0).toFixed(2)),
+      target: Number((goalTarget || 0).toFixed(2)),
+      currency: goalCurrency,
+      percent: percent == null ? null : Number(percent.toFixed(1)),
+    },
+    supporters,
+    hiddenOlderThanDays: visibleDays,
+    minPublicAmount,
+    updated: new Date().toISOString(),
+  };
+  if (fetchErrors.length > 0)
+    response.warning = fetchErrors.slice(-2).join("; ");
+
+  return json(response, 200, {
+    "cache-control": "public, max-age=300",
   });
 }
 
@@ -2323,6 +3147,8 @@ export default {
         response = await handleStats(request, env);
       else if (request.method === "GET" && path === "/api/summary")
         response = await handlePublicSummary(request, env);
+      else if (request.method === "GET" && path === "/api/donations")
+        response = await handleDonations(request, env);
       else if (request.method === "POST" && path === "/api/telegram/webhook")
         response = await handleTelegramWebhook(request, env, ctx);
       else if (request.method === "POST" && path === "/api/telegram/setup")

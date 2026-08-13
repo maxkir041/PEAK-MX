@@ -4,32 +4,32 @@ PEAK-MX is a utility and admin menu mod for **PEAK** by **maxkir041**.
 
 It includes 140+ in-game functions: movement tweaks, stamina and status controls, inventory editing, player administration, achievements, cosmetics, world tools, fun actions, larger-lobby controls, and host protection.
 
-## Links
-
-- GitHub: https://github.com/maxkir041/PEAK-MX
-- Nexus Mods: https://www.nexusmods.com/peak/mods/179
-- Steam: https://steamcommunity.com/id/everyng/
-- Telegram: https://t.me/maxkir041
-- Playground: https://users.playground.ru/7293247/
-- Donate: https://www.donationalerts.com/r/maxkir041
-
 ## Installation
 
-1. Install BepInEx for PEAK.
-2. Download the latest `PEAK-MX-x.x.x.zip` from GitHub Releases.
-3. Extract `PEAK-MX.dll` into:
+1. Install with Thunderstore/r2modman, or install BepInEx for PEAK manually.
+2. If installing manually, extract `PEAK-MX.dll` into:
 
    ```text
    PEAK/BepInEx/plugins
    ```
 
-4. Launch the game.
-5. Open the PEAK-MX menu with **Insert** by default.
+3. Launch the game.
+4. Open the PEAK-MX menu with **Insert** by default.
 
 The menu hotkey can be changed inside the About tab. The menu can also be closed with **Esc** or the close button in the header.
 
+## What's New in 1.0.13
+
+- Updated PEAK-MX for the latest PEAK update.
+- Restored broken menu tabs and multiplayer player selection.
+- Fixed several inventory, prank, player, and world tools.
+- Updated item loading for new and changed game items.
+- Added support for new achievements, badges, and medal cosmetics.
+- Added a small in-game thank-you panel for supporters.
+
 ## Features
 
+- 140+ in-game functions.
 - Movement speed, jump height, unlimited jumps, fly mode, noclip, long interaction, and cinematic free camera.
 - Stamina, extra stamina, lantern fuel, item uses, status effects, injuries, hunger, cold, poison, curse, drowsiness, heat, and weight controls.
 - Inventory editing, backpack support, item spawning, slot clearing, item charging, gold fill, web fill, and random item fill.
@@ -38,27 +38,21 @@ The menu hotkey can be changed inside the About tab. The menu can also be closed
 - Larger-lobby controls: configurable player limit, host-only airport kiosk start, join/leave logging, voice routing fix, and player UI fixes.
 - World tools: run timer, time-of-day presets, game speed, ping hand size, nearby containers, and finish controls.
 - Achievements and cosmetics unlock/reset tools with badge icons and cosmetic previews.
-- Interface supports 14 languages: English, Russian, Ukrainian, Simplified Chinese, Traditional Chinese, Japanese, Korean, Spanish, Brazilian Portuguese, German, French, Italian, Polish, and Turkish.
-
+- Interface supports 14 languages.
 
 ## Important
 
-Use admin features only in your own lobby or where you are allowed to manage players. Some actions depend on lobby state, player state, and what the game currently syncs.
+Use admin features only in your own lobby or where you are allowed to manage players.
 
 If something breaks, test with a clean profile that only has BepInEx and PEAK-MX enabled before reporting issues.
 
-## Build
+## Links
 
-Requires the .NET SDK.
-
-```powershell
-dotnet build -c Release
-```
-
-The build copies `PEAK-MX.dll` into the configured PEAK BepInEx plugins folder.
-
-
-If your PEAK install path differs, edit the paths at the top of `PEAK-MX.csproj`.
+- GitHub: https://github.com/maxkir041/PEAK-MX
+- Nexus Mods: https://www.nexusmods.com/peak/mods/179
+- Steam: https://steamcommunity.com/id/everyng/
+- Telegram: https://t.me/maxkir041
+- Donate: https://www.donationalerts.com/r/maxkir041
 
 ## License
 

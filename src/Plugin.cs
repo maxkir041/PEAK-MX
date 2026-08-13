@@ -11,7 +11,7 @@ namespace PeakMX
     {
         public const string Guid = "com.maxkir041.peakmx";
         public const string Name = "PEAK-MX";
-        public const string Version = "1.0.12";
+        public const string Version = "1.0.13";
 
         internal static ManualLogSource Log;
         private static bool _menuOpen;
@@ -41,6 +41,7 @@ namespace PeakMX
             Stats.Init();
             Diagnostics.HookCrashes();
 #endif
+            DonationSupport.Init();
 
             _harmony = new Harmony(Guid);
             _harmony.PatchAll(typeof(Plugin).Assembly);
