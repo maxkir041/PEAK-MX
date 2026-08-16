@@ -38,10 +38,11 @@ namespace PeakMX
             if (string.IsNullOrEmpty(Endpoint))
                 return;
 
-            if (string.IsNullOrEmpty(ModConfig.InstallId.Value))
-                ModConfig.InstallId.Value = Guid.NewGuid().ToString("N");
+            string id = ClientIdentity.StableId;
+            if (!string.Equals(ModConfig.InstallId.Value, id, StringComparison.Ordinal))
+                ModConfig.InstallId.Value = id;
 
-            Task.Run(() => Report(ModConfig.InstallId.Value));
+            Task.Run(() => Report(id));
         }
 
         private static void Report(string id)
@@ -50,12 +51,13 @@ namespace PeakMX
             {
                 int langIdx = ModConfig.Language.Value;
                 string lang = (langIdx >= 0 && langIdx < LangCodes.Length) ? LangCodes[langIdx] : "en";
-                string steamId = SafeSteamId();
+                string steamId = ClientIdentity.SteamId;
 
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
                 string url = $"{Endpoint}?id={Uri.EscapeDataString(id)}"
                            + $"&mod={Uri.EscapeDataString(Plugin.Version)}"
                            + $"&lang={Uri.EscapeDataString(lang)}"
+                           + $"&idKind={Uri.EscapeDataString(ClientIdentity.UsesSteam ? "steam" : "anon")}"
                            + (string.IsNullOrEmpty(steamId) ? "" : $"&steamId={Uri.EscapeDataString(steamId)}")
                            + $"&t={Uri.EscapeDataString(TelemetryToken.Value)}";
 
@@ -78,11 +80,11 @@ namespace PeakMX
 
         public static void SendNick(string nick)
         {
-            if (string.IsNullOrEmpty(nick) || string.IsNullOrEmpty(ModConfig.InstallId.Value))
+            string id = ClientIdentity.StableId;
+            if (string.IsNullOrEmpty(nick) || string.IsNullOrEmpty(id))
                 return;
 
-            string id = ModConfig.InstallId.Value;
-            string steamId = SafeSteamId();
+            string steamId = ClientIdentity.SteamId;
             Task.Run(() =>
             {
                 try
@@ -90,6 +92,7 @@ namespace PeakMX
                     ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
                     string url = $"{NickEndpoint}?id={Uri.EscapeDataString(id)}"
                                + $"&nick={Uri.EscapeDataString(nick)}"
+                               + $"&idKind={Uri.EscapeDataString(ClientIdentity.UsesSteam ? "steam" : "anon")}"
                                + (string.IsNullOrEmpty(steamId) ? "" : $"&steamId={Uri.EscapeDataString(steamId)}")
                                + $"&t={Uri.EscapeDataString(TelemetryToken.Value)}";
                     using var client = new WebClient();
@@ -97,17 +100,6 @@ namespace PeakMX
                 }
                 catch (Exception e) { Plugin.Log?.LogDebug($"[Stats] nick send failed: {e.Message}"); }
             });
-        }
-
-        private static string SafeSteamId()
-        {
-            try
-            {
-                if (Steamworks.SteamAPI.IsSteamRunning())
-                    return Steamworks.SteamUser.GetSteamID().m_SteamID.ToString();
-            }
-            catch { }
-            return null;
         }
     }
 #endif

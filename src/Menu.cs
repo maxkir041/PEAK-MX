@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Threading.Tasks;
+using BepInEx.Configuration;
 using UnityEngine;
 
 namespace PeakMX
@@ -21,6 +22,9 @@ namespace PeakMX
 
         private static readonly string[] Tabs =
             { "tab.character", "tab.cheats", "tab.admin", "tab.inventory", "tab.world", "tab.badges", "tab.cosmetics", "tab.about" };
+        private static readonly string[] FeedbackTypeKeys = { "suggestion", "bug", "other" };
+        private static readonly string[] FeedbackTypesRu = { "Предложение", "Проблема", "Другое" };
+        private static readonly string[] FeedbackTypesEn = { "Suggestion", "Problem", "Other" };
 
         private const float HeaderHeight = 62f;
         private const float WindowPadding = 12f;
@@ -83,6 +87,53 @@ namespace PeakMX
         private static bool _closeRequested;
         private static bool _waitingForMenuKey;
         private static bool _showAllDonors;
+        private static string _nicknameInput = "";
+        private static float _clientIdCopiedUntil;
+        private static int _themeVersion = -1;
+        private static string _accentHexText;
+        private static string _actionHexText;
+        private static int _feedbackKind;
+        private static string _feedbackTitle = "";
+        private static string _feedbackMessage = "";
+        private static string _feedbackContact = "";
+        private static bool _feedbackRepliesOpen = true;
+        private static bool _feedbackAttachScreenshot;
+        private static bool _feedbackCommentAttachScreenshot;
+        private static bool _feedbackPickForComment;
+        private static bool _feedbackPickerRestoreFullscreen;
+        private static FullScreenMode _feedbackPickerFullscreenMode;
+        private static int _feedbackPickerWidth;
+        private static int _feedbackPickerHeight;
+        private static string _feedbackSelectedTicket = "";
+        private static string _feedbackCommentMessage = "";
+        private static string _feedbackScreenshotError = "";
+        private static readonly List<FeedbackAttachment> _feedbackAttachments = new List<FeedbackAttachment>();
+        private static readonly List<FeedbackAttachment> _feedbackCommentAttachments = new List<FeedbackAttachment>();
+
+        private struct ThemeColorPreset
+        {
+            public readonly string RuName;
+            public readonly string EnName;
+            public readonly string AccentHex;
+            public readonly string ActionHex;
+
+            public ThemeColorPreset(string ruName, string enName, string accentHex, string actionHex)
+            {
+                RuName = ruName;
+                EnName = enName;
+                AccentHex = accentHex;
+                ActionHex = actionHex;
+            }
+        }
+
+        private static readonly ThemeColorPreset[] ThemeColorPresets =
+        {
+            new ThemeColorPreset("Классика", "Classic", Theme.DefaultAccentHex, Theme.DefaultActionHex),
+            new ThemeColorPreset("Лед", "Ice", "#48DDE8", "#7AA8FF"),
+            new ThemeColorPreset("Фиолет", "Violet", "#A977FF", "#FF6BCB"),
+            new ThemeColorPreset("Янтарь", "Amber", "#FFB84A", "#FF6F3C"),
+            new ThemeColorPreset("Роза", "Rose", "#FF6B88", "#9D7BFF"),
+        };
 
         private static string L(string key) => Localization.T(key);
         private static bool Ru => Localization.Current == Lang.Russian;
@@ -112,6 +163,7 @@ namespace PeakMX
         public static void Draw()
         {
             Theme.EnsureBuilt();
+            SyncThemeTextureCache();
             ApplyFont();
             ClampWindowToScreen();
             _hoverTip = null;
@@ -136,7 +188,7 @@ namespace PeakMX
                 return;
             }
             if (_headerTex == null)
-                _headerTex = Theme.GradientTex(new Color(0.118f, 0.302f, 0.220f), new Color(0.078f, 0.157f, 0.122f), Mathf.RoundToInt(HeaderHeight));
+                _headerTex = Theme.GradientTex(Theme.HeaderBg, Theme.HeaderDim, Mathf.RoundToInt(HeaderHeight));
             if (_accentTex == null) _accentTex = Theme.Tex(Theme.Accent);
             GUI.DrawTexture(new Rect(0f, 0f, _rect.width, HeaderHeight), _headerTex);
             GUI.DrawTexture(new Rect(0f, HeaderHeight, _rect.width, 2f), _accentTex);
@@ -292,7 +344,7 @@ namespace PeakMX
                         GameApi.ClearAllStatus(statusTargetChar);
                     GUILayout.EndHorizontal();
                     var afflictionNames = Ru ? GameApi.StatusRu : GameApi.StatusEn;
-                    _selStatus = GUILayout.SelectionGrid(_selStatus, afflictionNames, 3, Theme.ListItem, GUILayout.Height(112));
+                    _selStatus = GUILayout.SelectionGrid(_selStatus, afflictionNames, 3, Theme.ListItem, GUILayout.Height(140));
                     _statusAmount = Slider(Ru ? "Сила" : "Amount", _statusAmount, 0f, 1f);
                     GUILayout.BeginHorizontal();
                     if (GUILayout.Button(Ru ? "Наложить" : "Apply", Theme.DonateBtn, GUILayout.Height(32)))
@@ -334,7 +386,7 @@ namespace PeakMX
                 GameApi.ClearAllStatus(target);
             GUILayout.EndHorizontal();
             var statusNames = Ru ? GameApi.StatusRu : GameApi.StatusEn;
-            _selStatus = GUILayout.SelectionGrid(_selStatus, statusNames, 3, Theme.ListItem, GUILayout.Height(112));
+            _selStatus = GUILayout.SelectionGrid(_selStatus, statusNames, 3, Theme.ListItem, GUILayout.Height(140));
             _statusAmount = Slider(Ru ? "Сила" : "Amount", _statusAmount, 0f, 1f);
             GUILayout.BeginHorizontal();
             if (GUILayout.Button(Ru ? "Наложить" : "Apply", Theme.DonateBtn, GUILayout.Height(32)))
@@ -1083,6 +1135,9 @@ namespace PeakMX
                 GUILayout.Label(L("ui.language"), Theme.Section);
                 DrawLanguagePicker();
                 DrawMenuKeyBinding();
+                DrawClientIdentity();
+                DrawUpdateChecker();
+                DrawThemeColorSettings();
 
                 GUILayout.Space(6);
                 GUILayout.Label(Ru ? "Окно" : "Window", Theme.Section);
@@ -1117,6 +1172,8 @@ namespace PeakMX
                 LinkButton("Website", UrlWebsite);
                 GUILayout.EndHorizontal();
 
+                DrawFeedbackPanel();
+
                 GUILayout.Space(8);
                 GUILayout.Label(SupportText(), Theme.DonateText);
                 if (GUILayout.Button(DonateTextLabel(), Theme.DonateBtn, GUILayout.Width(160)))
@@ -1148,6 +1205,9 @@ namespace PeakMX
             GUILayout.Label(L("ui.language"), Theme.Section);
             DrawLanguagePicker();
             DrawMenuKeyBinding();
+            DrawClientIdentity();
+            DrawUpdateChecker();
+            DrawThemeColorSettings();
 
             GUILayout.Space(6);
             GUILayout.Label(Ru ? "Размер меню" : "Menu size", Theme.Section);
@@ -1174,6 +1234,8 @@ namespace PeakMX
             LinkButton("Telegram", UrlTelegram);
             LinkButton("Website", UrlWebsite);
             GUILayout.EndHorizontal();
+
+            DrawFeedbackPanel();
 
             GUILayout.Space(8);
             GUILayout.Label(SupportText(), Theme.DonateText);
@@ -1256,6 +1318,628 @@ namespace PeakMX
                     ? (Ru ? "Нажми новую клавишу. Esc отменяет." : "Press the new key. Esc cancels.")
                     : (Ru ? "Клавиша применяется сразу и сохраняется в конфиге." : "The key applies immediately and is saved to config."),
                 Theme.LabelDim);
+        }
+
+        private static void DrawClientIdentity()
+        {
+            GUILayout.Space(6);
+            GUILayout.Label(Ru ? "Личный ID" : "Personal ID", Theme.Section);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(ClientIdentity.StableId, Theme.LabelDim);
+            if (GUILayout.Button(Ru ? "Скопировать" : "Copy", Theme.LinkBtn, GUILayout.Width(120), GUILayout.Height(26)))
+            {
+                GUIUtility.systemCopyBuffer = ClientIdentity.StableId;
+                _clientIdCopiedUntil = Time.realtimeSinceStartup + 2f;
+            }
+            GUILayout.EndHorizontal();
+            if (Time.realtimeSinceStartup < _clientIdCopiedUntil)
+                GUILayout.Label(Ru ? "ID скопирован в буфер обмена." : "ID copied to clipboard.", Theme.LabelDim);
+
+            string source = ClientIdentity.UsesSteam
+                ? (Ru ? "Используется SteamID." : "Using SteamID.")
+                : (Ru ? "Сохранен вне папки игры: " : "Saved outside the game folder: ") + ClientIdentity.StoragePath;
+            GUILayout.Label(source, Theme.LabelDim);
+        }
+
+        private static void DrawUpdateChecker()
+        {
+            GUILayout.Space(6);
+            GUILayout.Label(Ru ? "Обновления" : "Updates", Theme.Section);
+            GUILayout.Label((Ru ? "Установлена версия: " : "Installed version: ") + Plugin.Version, Theme.LabelDim);
+
+            if (UpdateChecker.IsChecking)
+            {
+                GUILayout.Label(Ru ? "Проверяю GitHub Releases..." : "Checking GitHub Releases...", Theme.LabelDim);
+            }
+            else if (!string.IsNullOrWhiteSpace(UpdateChecker.Error))
+            {
+                GUILayout.Label((Ru ? "Не удалось проверить: " : "Could not check: ") + UpdateChecker.Error, Theme.LabelDim);
+            }
+            else if (!UpdateChecker.HasChecked)
+            {
+                GUILayout.Label(Ru ? "Проверка еще не запускалась." : "No update check has run yet.", Theme.LabelDim);
+            }
+            else if (UpdateChecker.UpdateAvailable)
+            {
+                GUILayout.Label(
+                    (Ru ? "Доступна новая версия: " : "New version available: ")
+                    + (string.IsNullOrWhiteSpace(UpdateChecker.LatestVersion) ? UpdateChecker.LatestTag : UpdateChecker.LatestVersion),
+                    Theme.Label);
+                if (!string.IsNullOrWhiteSpace(UpdateChecker.AssetName))
+                    GUILayout.Label((Ru ? "Файл релиза: " : "Release file: ") + UpdateChecker.AssetName, Theme.LabelDim);
+            }
+            else if (string.Equals(UpdateChecker.Status, "ahead", StringComparison.Ordinal))
+            {
+                GUILayout.Label(
+                    Ru
+                        ? "Установленная версия новее последнего релиза GitHub. Автообновление не требуется."
+                        : "Installed version is newer than the latest GitHub release. Auto-update is not needed.",
+                    Theme.LabelDim);
+                if (!string.IsNullOrWhiteSpace(UpdateChecker.LatestVersion) || !string.IsNullOrWhiteSpace(UpdateChecker.LatestTag))
+                {
+                    GUILayout.Label(
+                        (Ru ? "Последний релиз GitHub: " : "Latest GitHub release: ")
+                        + (string.IsNullOrWhiteSpace(UpdateChecker.LatestVersion) ? UpdateChecker.LatestTag : UpdateChecker.LatestVersion),
+                        Theme.LabelDim);
+                }
+            }
+            else
+            {
+                GUILayout.Label(Ru ? "Установлена последняя версия." : "You are on the latest version.", Theme.LabelDim);
+            }
+
+            if (UpdateChecker.InstallQueued)
+            {
+                GUILayout.Label(
+                    Ru
+                        ? "Обновление скачано. Закрой игру, и DLL будет заменена автоматически."
+                        : "Update downloaded. Close the game and the DLL will be replaced automatically.",
+                    Theme.LabelDim);
+            }
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button(Ru ? "Проверить" : "Check", Theme.LinkBtn, GUILayout.Width(100), GUILayout.Height(28)))
+                UpdateChecker.CheckAsync(true);
+
+            if (UpdateChecker.UpdateAvailable && UpdateChecker.CanAutoInstall)
+            {
+                string installText = UpdateChecker.IsInstalling
+                    ? (Ru ? "Скачиваю..." : "Downloading...")
+                    : UpdateChecker.InstallQueued
+                        ? (Ru ? "Готово" : "Ready")
+                        : (Ru ? "Установить после выхода" : "Install after exit");
+
+                GUI.enabled = !UpdateChecker.IsInstalling && !UpdateChecker.InstallQueued;
+                if (GUILayout.Button(installText, Theme.DonateBtn, GUILayout.Height(28)))
+                    UpdateChecker.InstallAsync();
+                GUI.enabled = true;
+            }
+
+            if (GUILayout.Button(Ru ? "Открыть релизы" : "Open releases", Theme.LinkBtn, GUILayout.Width(130), GUILayout.Height(28)))
+                OpenUrl(string.IsNullOrWhiteSpace(UpdateChecker.ReleaseUrl) ? UpdateChecker.ReleasesUrl : UpdateChecker.ReleaseUrl);
+            GUILayout.EndHorizontal();
+        }
+
+        private static void DrawThemeColorSettings()
+        {
+            GUILayout.Space(6);
+            GUILayout.Label(Ru ? "Акцентные цвета" : "Accent colors", Theme.Section);
+            GUILayout.Label(
+                Ru
+                    ? "Меняет цвет выделения, полос, переключателей и основных кнопок. Сохраняется в конфиге."
+                    : "Changes highlights, stripes, switches, and primary buttons. Saved in config.",
+                Theme.LabelDim);
+
+            GUILayout.BeginHorizontal();
+            foreach (ThemeColorPreset preset in ThemeColorPresets)
+            {
+                string label = Ru ? preset.RuName : preset.EnName;
+                if (GUILayout.Button(label, Theme.Chip, GUILayout.Height(26)))
+                    ApplyThemePalette(preset.AccentHex, preset.ActionHex);
+            }
+            if (GUILayout.Button(Ru ? "Сброс" : "Reset", Theme.LinkBtn, GUILayout.Width(80), GUILayout.Height(26)))
+                ApplyThemePalette(Theme.DefaultAccentHex, Theme.DefaultActionHex);
+            GUILayout.EndHorizontal();
+
+            DrawColorEditor(Ru ? "Акцент" : "Accent", ModConfig.AccentColorHex, Theme.DefaultAccentHex, ref _accentHexText);
+            DrawColorEditor(Ru ? "Кнопки" : "Buttons", ModConfig.ActionColorHex, Theme.DefaultActionHex, ref _actionHexText);
+        }
+
+        private static void DrawFeedbackPanel()
+        {
+            ConsumePickedFeedbackImages();
+
+            GUILayout.Space(8);
+            GUILayout.Label(Ru ? "Предложить / сообщить о проблеме" : "Suggest / report a problem", Theme.Section);
+            GUILayout.BeginVertical(Theme.Panel9);
+
+            _feedbackKind = Mathf.Clamp(_feedbackKind, 0, FeedbackTypeKeys.Length - 1);
+            _feedbackKind = GUILayout.SelectionGrid(
+                _feedbackKind,
+                Ru ? FeedbackTypesRu : FeedbackTypesEn,
+                3,
+                Theme.ListItem,
+                GUILayout.Height(32));
+
+            GUILayout.Label(Ru ? "Тема" : "Title", Theme.LabelDim);
+            _feedbackTitle = ClipInput(GUILayout.TextField(_feedbackTitle ?? "", Theme.TextInput, GUILayout.Height(28)), 120);
+
+            GUILayout.Label(Ru ? "Сообщение" : "Message", Theme.LabelDim);
+            _feedbackMessage = ClipInput(GUILayout.TextArea(_feedbackMessage ?? "", Theme.TextArea, GUILayout.Height(92)), 3000);
+
+            GUILayout.Label(Ru ? "Контакт для ответа, если хочешь" : "Contact for a reply, optional", Theme.LabelDim);
+            _feedbackContact = ClipInput(GUILayout.TextField(_feedbackContact ?? "", Theme.TextInput, GUILayout.Height(28)), 160);
+            DrawFeedbackAttachmentControls(_feedbackAttachments, ref _feedbackAttachScreenshot, false);
+
+            if (!string.IsNullOrWhiteSpace(FeedbackClient.LastError))
+                GUILayout.Label((Ru ? "Ошибка: " : "Error: ") + FeedbackClient.LastError, Theme.LabelDim);
+            else if (!string.IsNullOrWhiteSpace(_feedbackScreenshotError))
+                GUILayout.Label((Ru ? "Изображения: " : "Images: ") + _feedbackScreenshotError, Theme.LabelDim);
+            else if (FeedbackClient.IsSending)
+                GUILayout.Label(Ru ? "Отправляю..." : "Sending...", Theme.LabelDim);
+            else if (FeedbackClient.IsClosing)
+                GUILayout.Label(Ru ? "Закрываю обращение..." : "Closing ticket...", Theme.LabelDim);
+            else if (string.Equals(FeedbackClient.LastCloseStatus, "closed", StringComparison.Ordinal))
+                GUILayout.Label(Ru ? "Обращение закрыто." : "Ticket closed.", Theme.LabelDim);
+            else if (string.Equals(FeedbackClient.LastStatus, "sent", StringComparison.Ordinal))
+            {
+                string code = string.IsNullOrWhiteSpace(FeedbackClient.LastTicketCode) ? "" : " #" + FeedbackClient.LastTicketCode;
+                GUILayout.Label((Ru ? "Отправлено" : "Sent") + code, Theme.LabelDim);
+            }
+
+            GUILayout.BeginHorizontal();
+            bool canSend = !FeedbackClient.IsSending && !string.IsNullOrWhiteSpace(_feedbackMessage);
+            GUI.enabled = canSend;
+            if (GUILayout.Button(FeedbackClient.IsSending ? (Ru ? "Отправляю..." : "Sending...") : (Ru ? "Отправить" : "Send"), Theme.DonateBtn, GUILayout.Height(30)))
+            {
+                var attachments = BuildFeedbackAttachments(_feedbackAttachments, _feedbackAttachScreenshot);
+                if (attachments != null)
+                    FeedbackClient.SubmitAsync(
+                        FeedbackTypeKeys[Mathf.Clamp(_feedbackKind, 0, FeedbackTypeKeys.Length - 1)],
+                        _feedbackTitle,
+                        _feedbackMessage,
+                        _feedbackContact,
+                        attachments);
+            }
+            GUI.enabled = true;
+
+            if (GUILayout.Button(
+                FeedbackClient.IsCheckingReplies ? (Ru ? "Проверяю..." : "Checking...") : (Ru ? "Проверить ответы" : "Check replies"),
+                Theme.LinkBtn,
+                GUILayout.Width(Ru ? 150 : 135),
+                GUILayout.Height(30)))
+                FeedbackClient.CheckRepliesAsync();
+            GUILayout.EndHorizontal();
+
+            DrawFeedbackReplies();
+            GUILayout.EndVertical();
+        }
+
+        private static void DrawFeedbackReplies()
+        {
+            var tickets = FeedbackClient.Tickets;
+            int count = tickets != null ? tickets.Count : 0;
+            if (count <= 0)
+                return;
+
+            GUILayout.Space(4);
+            string foldText = _feedbackRepliesOpen
+                ? (Ru ? "Ответы разработчика ▲" : "Developer replies ▲")
+                : (Ru ? $"Ответы разработчика ({count}) ▼" : $"Developer replies ({count}) ▼");
+            if (GUILayout.Button(foldText, _feedbackRepliesOpen ? Theme.FoldoutBtnOpen : Theme.FoldoutBtn, GUILayout.Height(30)))
+                _feedbackRepliesOpen = !_feedbackRepliesOpen;
+            if (!_feedbackRepliesOpen)
+                return;
+
+            int max = Mathf.Min(count, 5);
+            for (int i = 0; i < max; i++)
+            {
+                FeedbackTicket ticket = tickets[i];
+                GUILayout.BeginVertical(Theme.Panel9);
+                GUILayout.Label(
+                    "#" + ticket.Code
+                    + " · "
+                    + FeedbackTypeText(ticket.Type)
+                    + " · "
+                    + FeedbackStatusText(ticket.Status),
+                    Theme.Label);
+                if (!string.IsNullOrWhiteSpace(ticket.Title))
+                    GUILayout.Label(ClipUi(ticket.Title, 140), Theme.LabelDim);
+                if (ticket.CommentsCount > 0)
+                    GUILayout.Label(
+                        (Ru ? "Дополнений: " : "Updates: ")
+                        + ticket.CommentsCount
+                        + (string.IsNullOrWhiteSpace(ticket.LatestCommentAt) ? "" : " · " + ShortDonationDate(ticket.LatestCommentAt)),
+                        Theme.LabelDim);
+                if (!string.IsNullOrWhiteSpace(ticket.AdminReply))
+                    GUILayout.Label((Ru ? "Ответ: " : "Reply: ") + ClipUi(ticket.AdminReply, 700), Theme.Label);
+                else
+                    GUILayout.Label(Ru ? "Ответа пока нет." : "No reply yet.", Theme.LabelDim);
+                if (!string.IsNullOrWhiteSpace(ticket.UpdatedAt))
+                    GUILayout.Label(ShortDonationDate(ticket.UpdatedAt), Theme.LabelDim);
+                GUILayout.BeginHorizontal();
+                bool open = FeedbackTicketIsOpen(ticket.Status);
+                if (open && GUILayout.Button(Ru ? "Дополнить" : "Add update", Theme.LinkBtn, GUILayout.Height(26)))
+                {
+                    _feedbackSelectedTicket = ticket.Code;
+                    _feedbackCommentMessage = "";
+                    _feedbackCommentAttachScreenshot = false;
+                    _feedbackCommentAttachments.Clear();
+                }
+                if (open)
+                {
+                    bool wasEnabled = GUI.enabled;
+                    GUI.enabled = wasEnabled && !FeedbackClient.IsClosing;
+                    if (GUILayout.Button(
+                            FeedbackClient.IsClosing ? (Ru ? "Закрываю..." : "Closing...") : (Ru ? "Закрыть обращение" : "Close ticket"),
+                            Theme.LinkBtn,
+                            GUILayout.Width(Ru ? 150 : 120),
+                            GUILayout.Height(26)))
+                    {
+                        if (string.Equals(_feedbackSelectedTicket, ticket.Code, StringComparison.OrdinalIgnoreCase))
+                        {
+                            _feedbackSelectedTicket = "";
+                            _feedbackCommentMessage = "";
+                            _feedbackCommentAttachScreenshot = false;
+                            _feedbackCommentAttachments.Clear();
+                        }
+                        FeedbackClient.CloseTicketAsync(ticket.Code);
+                    }
+                    GUI.enabled = wasEnabled;
+                }
+                GUILayout.EndHorizontal();
+                GUILayout.EndVertical();
+            }
+
+            DrawFeedbackCommentBox();
+        }
+
+        private static void DrawFeedbackCommentBox()
+        {
+            if (string.IsNullOrWhiteSpace(_feedbackSelectedTicket))
+                return;
+
+            GUILayout.Space(4);
+            GUILayout.BeginVertical(Theme.Panel9);
+            GUILayout.Label((Ru ? "Дополнение к " : "Update for ") + "#" + _feedbackSelectedTicket, Theme.Label);
+            _feedbackCommentMessage = ClipInput(
+                GUILayout.TextArea(_feedbackCommentMessage ?? "", Theme.TextArea, GUILayout.Height(76)),
+                3000);
+            DrawFeedbackAttachmentControls(_feedbackCommentAttachments, ref _feedbackCommentAttachScreenshot, true);
+
+            if (FeedbackClient.IsCommenting)
+                GUILayout.Label(Ru ? "Отправляю дополнение..." : "Sending update...", Theme.LabelDim);
+            else if (string.Equals(FeedbackClient.LastCommentStatus, "sent", StringComparison.Ordinal))
+                GUILayout.Label(Ru ? "Дополнение отправлено." : "Update sent.", Theme.LabelDim);
+
+            GUILayout.BeginHorizontal();
+            bool canSend = !FeedbackClient.IsCommenting
+                && (!string.IsNullOrWhiteSpace(_feedbackCommentMessage) || _feedbackCommentAttachScreenshot || _feedbackCommentAttachments.Count > 0);
+            GUI.enabled = canSend;
+            if (GUILayout.Button(Ru ? "Отправить дополнение" : "Send update", Theme.DonateBtn, GUILayout.Height(28)))
+            {
+                var attachments = BuildFeedbackAttachments(_feedbackCommentAttachments, _feedbackCommentAttachScreenshot);
+                if (attachments != null)
+                    FeedbackClient.AddCommentAsync(_feedbackSelectedTicket, _feedbackCommentMessage, attachments);
+            }
+            GUI.enabled = true;
+            if (GUILayout.Button(Ru ? "Отмена" : "Cancel", Theme.LinkBtn, GUILayout.Width(90), GUILayout.Height(28)))
+            {
+                _feedbackSelectedTicket = "";
+                _feedbackCommentMessage = "";
+                _feedbackCommentAttachScreenshot = false;
+                _feedbackCommentAttachments.Clear();
+            }
+            GUILayout.EndHorizontal();
+            GUILayout.EndVertical();
+        }
+
+        private static void DrawFeedbackAttachmentControls(List<FeedbackAttachment> attachments, ref bool attachCurrentScreenshot, bool compact)
+        {
+            GUILayout.Label(Ru ? "Изображения" : "Images", Theme.LabelDim);
+            GUILayout.BeginHorizontal();
+            attachCurrentScreenshot = DrawVisibleCheck(
+                attachCurrentScreenshot,
+                Ru ? "Текущий скрин" : "Current screenshot",
+                GUILayout.Width(Ru ? 150 : 165));
+            bool picking = FeedbackClient.IsPickingFiles;
+            if (picking)
+            {
+                GUILayout.Label(Ru ? "Окно выбора открыто..." : "File picker is open...", Theme.LabelDim, GUILayout.Height(28));
+                if (GUILayout.Button(Ru ? "Отменить выбор" : "Cancel picker", Theme.LinkBtn, GUILayout.Width(Ru ? 135 : 120), GUILayout.Height(28)))
+                    CancelFeedbackImagePicker();
+            }
+            else if (GUILayout.Button(Ru ? "Выбрать файлы..." : "Choose files...", Theme.LinkBtn, GUILayout.Height(28)))
+            {
+                PickFeedbackImages(attachments);
+            }
+            if (attachments.Count > 0 && GUILayout.Button(Ru ? "Очистить" : "Clear", Theme.LinkBtn, GUILayout.Width(90), GUILayout.Height(28)))
+                attachments.Clear();
+            GUILayout.EndHorizontal();
+
+            if (attachments.Count > 0 || attachCurrentScreenshot)
+            {
+                int count = attachments.Count + (attachCurrentScreenshot ? 1 : 0);
+                GUILayout.Label(
+                    (Ru ? "Будет отправлено изображений: " : "Images to send: ")
+                    + count
+                    + (attachments.Count > 0 ? " · " + AttachmentNames(attachments, compact ? 120 : 220) : ""),
+                    Theme.LabelDim);
+            }
+        }
+
+        private static void PickFeedbackImages(List<FeedbackAttachment> attachments)
+        {
+            if (FeedbackClient.IsPickingFiles)
+                return;
+
+            _feedbackPickForComment = ReferenceEquals(attachments, _feedbackCommentAttachments);
+            _feedbackScreenshotError = Ru
+                ? "Открыл окно выбора файлов. Если его не видно, проверь Alt+Tab или панель задач."
+                : "Opened the file picker. If it is not visible, check Alt+Tab or the taskbar.";
+            PrepareFeedbackFilePickerWindow();
+            FeedbackClient.PickImageFilesAsync();
+        }
+
+        private static void CancelFeedbackImagePicker()
+        {
+            FeedbackClient.CancelPickImageFiles();
+            RestoreFeedbackFilePickerWindow();
+            _feedbackScreenshotError = Ru ? "Выбор файлов отменен." : "File picking cancelled.";
+        }
+
+        private static void ConsumePickedFeedbackImages()
+        {
+            var picked = FeedbackClient.TakePickedImageFiles(out string error);
+            if (picked == null)
+                return;
+
+            RestoreFeedbackFilePickerWindow();
+            _feedbackScreenshotError = "";
+            if (!string.IsNullOrWhiteSpace(error))
+                _feedbackScreenshotError = FeedbackAttachmentError(error);
+            if (picked == null || picked.Count <= 0)
+                return;
+
+            List<FeedbackAttachment> attachments = _feedbackPickForComment
+                ? _feedbackCommentAttachments
+                : _feedbackAttachments;
+            for (int i = 0; i < picked.Count && attachments.Count < 6; i++)
+                attachments.Add(picked[i]);
+            if (attachments.Count >= 6 && picked.Count > 0)
+                _feedbackScreenshotError = string.IsNullOrWhiteSpace(_feedbackScreenshotError)
+                    ? (Ru ? "Можно приложить до 6 изображений." : "You can attach up to 6 images.")
+                    : _feedbackScreenshotError;
+        }
+
+        private static string FeedbackAttachmentError(string error)
+        {
+            if (string.IsNullOrWhiteSpace(error))
+                return "";
+            return error.Replace(
+                "max_6_images",
+                Ru ? "можно приложить до 6 изображений" : "you can attach up to 6 images");
+        }
+
+        private static void PrepareFeedbackFilePickerWindow()
+        {
+            try
+            {
+                if (_feedbackPickerRestoreFullscreen || !Screen.fullScreen)
+                    return;
+
+                _feedbackPickerRestoreFullscreen = true;
+                _feedbackPickerFullscreenMode = Screen.fullScreenMode;
+                _feedbackPickerWidth = Screen.width;
+                _feedbackPickerHeight = Screen.height;
+                Screen.fullScreenMode = FullScreenMode.Windowed;
+                Screen.fullScreen = false;
+            }
+            catch
+            {
+                _feedbackPickerRestoreFullscreen = false;
+            }
+        }
+
+        private static void RestoreFeedbackFilePickerWindow()
+        {
+            if (!_feedbackPickerRestoreFullscreen)
+                return;
+
+            try
+            {
+                Screen.SetResolution(
+                    Mathf.Max(640, _feedbackPickerWidth),
+                    Mathf.Max(480, _feedbackPickerHeight),
+                    _feedbackPickerFullscreenMode);
+            }
+            catch
+            {
+            }
+            finally
+            {
+                _feedbackPickerRestoreFullscreen = false;
+            }
+        }
+
+        private static List<FeedbackAttachment> BuildFeedbackAttachments(List<FeedbackAttachment> selected, bool includeCurrentScreenshot)
+        {
+            _feedbackScreenshotError = "";
+            var result = new List<FeedbackAttachment>();
+            if (selected != null)
+                result.AddRange(selected);
+
+            if (includeCurrentScreenshot)
+            {
+                byte[] screenshot = CaptureFeedbackScreenshot(true);
+                if (screenshot == null)
+                    return null;
+                result.Insert(0, new FeedbackAttachment
+                {
+                    Name = "peak-mx-screenshot.jpg",
+                    ContentType = "image/jpeg",
+                    Data = screenshot,
+                });
+            }
+
+            return result;
+        }
+
+        private static string AttachmentNames(List<FeedbackAttachment> attachments, int max)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < attachments.Count; i++)
+            {
+                if (i > 0)
+                    sb.Append(", ");
+                sb.Append(attachments[i].Name);
+                if (sb.Length > max)
+                    return sb.ToString(0, Math.Max(1, max - 3)) + "...";
+            }
+            return sb.ToString();
+        }
+
+        private static byte[] CaptureFeedbackScreenshot(bool enabled)
+        {
+            _feedbackScreenshotError = "";
+            if (!enabled)
+                return null;
+
+            byte[] screenshot = FeedbackClient.CaptureScreenshotJpeg(out string error);
+            if (screenshot == null)
+                _feedbackScreenshotError = string.IsNullOrWhiteSpace(error)
+                    ? (Ru ? "не удалось сделать скриншот" : "could not capture screenshot")
+                    : error;
+            return screenshot;
+        }
+
+        private static bool DrawVisibleCheck(bool value, string label, params GUILayoutOption[] options)
+        {
+            string text = (value ? "[x] " : "[ ] ") + label;
+            GUIStyle style = value ? Theme.SuccessBtn : Theme.LinkBtn;
+            var allOptions = new List<GUILayoutOption>(options ?? Array.Empty<GUILayoutOption>());
+            allOptions.Add(GUILayout.Height(28));
+            if (GUILayout.Button(text, style, allOptions.ToArray()))
+                value = !value;
+            return value;
+        }
+
+        private static string FeedbackTypeText(string type)
+        {
+            switch ((type ?? "").ToLowerInvariant())
+            {
+                case "bug": return Ru ? "Проблема" : "Problem";
+                case "other": return Ru ? "Другое" : "Other";
+                default: return Ru ? "Предложение" : "Suggestion";
+            }
+        }
+
+        private static string FeedbackStatusText(string status)
+        {
+            switch ((status ?? "").ToLowerInvariant())
+            {
+                case "answered": return Ru ? "есть ответ" : "answered";
+                case "dev": return Ru ? "в разработке" : "in development";
+                case "rejected": return Ru ? "отклонено" : "rejected";
+                case "closed": return Ru ? "закрыто" : "closed";
+                default: return Ru ? "новое" : "new";
+            }
+        }
+
+        private static bool FeedbackTicketIsOpen(string status)
+        {
+            string value = (status ?? "").ToLowerInvariant();
+            return value != "closed" && value != "rejected";
+        }
+
+        private static string ClipInput(string value, int max)
+        {
+            if (value == null)
+                return "";
+            return value.Length <= max ? value : value.Substring(0, max);
+        }
+
+        private static string ClipUi(string value, int max)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "";
+            string text = value.Trim();
+            return text.Length <= max ? text : text.Substring(0, Math.Max(1, max - 1)) + "...";
+        }
+
+        private static void DrawColorEditor(string label, ConfigEntry<string> entry, string fallbackHex, ref string hexText)
+        {
+            string currentHex = Theme.NormalizeHex(entry?.Value, fallbackHex);
+            Color current = Theme.ColorFromHex(currentHex, Theme.ColorFromHex(fallbackHex, Theme.Accent));
+            if (string.IsNullOrEmpty(hexText))
+                hexText = currentHex;
+
+            GUILayout.BeginVertical(Theme.Panel9);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(label, Theme.Label, GUILayout.Width(90));
+            DrawColorSwatch(current, 34f, 22f);
+            string nextText = GUILayout.TextField(hexText, Theme.LinkBtn, GUILayout.Width(92), GUILayout.Height(28));
+            hexText = nextText.Length > 7 ? nextText.Substring(0, 7) : nextText;
+            string typedHex = Theme.NormalizeHex(hexText, null);
+            bool changed = false;
+            if (!string.IsNullOrEmpty(typedHex) && !string.Equals(typedHex, currentHex, StringComparison.OrdinalIgnoreCase))
+            {
+                current = Theme.ColorFromHex(typedHex, current);
+                changed = true;
+            }
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button(Ru ? "Сброс" : "Reset", Theme.LinkBtn, GUILayout.Width(80), GUILayout.Height(28)))
+            {
+                current = Theme.ColorFromHex(fallbackHex, current);
+                changed = true;
+            }
+            GUILayout.EndHorizontal();
+
+            float r = Mathf.Round(Slider(label + " R", current.r * 255f, 0f, 255f));
+            float g = Mathf.Round(Slider(label + " G", current.g * 255f, 0f, 255f));
+            float b = Mathf.Round(Slider(label + " B", current.b * 255f, 0f, 255f));
+            Color sliderColor = new Color(r / 255f, g / 255f, b / 255f, 1f);
+            if (Theme.ColorToHex(sliderColor) != Theme.ColorToHex(current))
+            {
+                current = sliderColor;
+                changed = true;
+            }
+
+            if (changed)
+                ApplyThemeColor(entry, current, ref hexText);
+
+            GUILayout.EndVertical();
+        }
+
+        private static void DrawColorSwatch(Color color, float width, float height)
+        {
+            Rect rect = GUILayoutUtility.GetRect(width, height, GUILayout.Width(width), GUILayout.Height(height));
+            Color old = GUI.color;
+            GUI.color = color;
+            GUI.DrawTexture(rect, Texture2D.whiteTexture);
+            GUI.color = old;
+        }
+
+        private static void ApplyThemePalette(string accentHex, string actionHex)
+        {
+            if (ModConfig.AccentColorHex != null)
+                ModConfig.AccentColorHex.Value = Theme.NormalizeHex(accentHex, Theme.DefaultAccentHex);
+            if (ModConfig.ActionColorHex != null)
+                ModConfig.ActionColorHex.Value = Theme.NormalizeHex(actionHex, Theme.DefaultActionHex);
+            _accentHexText = ModConfig.AccentColorHex?.Value;
+            _actionHexText = ModConfig.ActionColorHex?.Value;
+            Theme.EnsureBuilt();
+            SyncThemeTextureCache(true);
+        }
+
+        private static void ApplyThemeColor(ConfigEntry<string> entry, Color color, ref string hexText)
+        {
+            string hex = Theme.ColorToHex(color);
+            if (entry != null && !string.Equals(entry.Value, hex, StringComparison.OrdinalIgnoreCase))
+                entry.Value = hex;
+            hexText = hex;
+            Theme.EnsureBuilt();
+            SyncThemeTextureCache(true);
         }
 
         private static void CaptureMenuKeyEvent()
@@ -1637,6 +2321,16 @@ namespace PeakMX
             TipLast(Ru ? "Сбрасывает стат максимальной высоты до 0. Может закрыть косметику, завязанную на высоту." : "Resets the max height stat to 0. Can lock height-gated cosmetics.");
             GUILayout.EndHorizontal();
 
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button(Ru ? "Случайная одежда и цвет" : "Random outfit + color", Theme.LinkBtn, GUILayout.Height(28)))
+                GameApi.RandomizeOutfitAndColor();
+            TipLast(Ru ? "Случайно выбирает цвет кожи и одежду из доступных вариантов." : "Randomly picks skin color and outfit from available options.");
+            ModConfig.RapidRandomOutfitColor = ToggleCompact(Ru ? "Быстро менять" : "Rapid shuffle", ModConfig.RapidRandomOutfitColor);
+            TipLast(Ru ? "Быстро крутит одежду и цвет, пока включено." : "Rapidly shuffles outfit and color while enabled.");
+            GUILayout.EndHorizontal();
+            if (ModConfig.RapidRandomOutfitColor)
+                ModConfig.RapidRandomOutfitColorInterval = Slider(Ru ? "Пауза смены" : "Shuffle delay", ModConfig.RapidRandomOutfitColorInterval, 0.08f, 1f);
+
             var categories = (GameApi.CosmeticCategory[])Enum.GetValues(typeof(GameApi.CosmeticCategory));
             GUILayout.BeginHorizontal();
             for (int i = 0; i < categories.Length; i++)
@@ -1804,6 +2498,9 @@ namespace PeakMX
             GUILayout.Label(L("ui.language"), Theme.Section);
             DrawLanguagePicker();
             DrawMenuKeyBinding();
+            DrawClientIdentity();
+            DrawUpdateChecker();
+            DrawThemeColorSettings();
 
             GUILayout.Space(6);
             GUILayout.Label(Ru ? "Ссылки" : "Links", Theme.Section);
@@ -1817,6 +2514,8 @@ namespace PeakMX
             LinkButton("Telegram", UrlTelegram);
             LinkButton("Website", UrlWebsite);
             GUILayout.EndHorizontal();
+
+            DrawFeedbackPanel();
 
             GUILayout.Space(8);
             GUILayout.Label(SupportText(), Theme.DonateText);
@@ -1839,7 +2538,7 @@ namespace PeakMX
         private static void DrawWindowModern(int id)
         {
             if (_headerTex == null)
-                _headerTex = Theme.GradientTex(new Color(0.118f, 0.302f, 0.220f), new Color(0.078f, 0.157f, 0.122f), Mathf.RoundToInt(HeaderHeight));
+                _headerTex = Theme.GradientTex(Theme.HeaderBg, Theme.HeaderDim, Mathf.RoundToInt(HeaderHeight));
             if (_accentTex == null) _accentTex = Theme.Tex(Theme.Accent);
 
             GUI.DrawTexture(new Rect(0f, 0f, _rect.width, HeaderHeight), _headerTex);
@@ -1985,7 +2684,7 @@ namespace PeakMX
                     ModConfig.StaminaRegenDelay = Slider(Ru ? "Задержка" : "Delay", ModConfig.StaminaRegenDelay, 0f, 5f);
 
                 var afflictionNames = Ru ? GameApi.StatusRu : GameApi.StatusEn;
-                _selStatus = GUILayout.SelectionGrid(_selStatus, afflictionNames, 3, Theme.ListItem, GUILayout.Height(112));
+                _selStatus = GUILayout.SelectionGrid(_selStatus, afflictionNames, 3, Theme.ListItem, GUILayout.Height(140));
                 _statusAmount = Slider(Ru ? "Сила" : "Amount", _statusAmount, 0f, 1f);
 
                 GUILayout.BeginHorizontal();
@@ -2470,6 +3169,10 @@ namespace PeakMX
                     ModConfig.NoFallingRagdoll);
                 ModConfig.NoWeight = Toggle("feat.noweight", ModConfig.NoWeight);
                 ModConfig.LockStatus = Toggle("feat.lockstatus", ModConfig.LockStatus);
+                ModConfig.GlobalVoice = ToggleRaw(
+                    Ru ? "Голос по всей карте" : "Global voice hearing",
+                    Ru ? "Убирает дистанционное затухание чужих голосов на твоем клиенте. Другим игрокам для такого же эффекта нужен свой мод." : "Removes distance falloff for other players' voices on your client. Other players need their own mod for the same effect.",
+                    ModConfig.GlobalVoice);
                 ModConfig.NoStatusEffects = ToggleRaw(
                     Ru ? "Без эффектов статуса" : "No status effects",
                     Ru ? "Постоянно очищает все недуги локального персонажа." : "Continuously clears every affliction from the local character.",
@@ -2538,6 +3241,20 @@ namespace PeakMX
                 TipLast(Ru ? "Накладывает яд, проклятие, краба, сонливость и паутину на выбранную цель. Для других игроков нужен хост." : "Adds poison, curse, crab, drowsy, and web to the target. Remote targets require host.");
                 if (GUILayout.Button(Ru ? "Вылечить" : "Cure", Theme.LinkBtn, GUILayout.Height(30))) GameApi.ClearAllStatus(target);
                 TipLast(Ru ? "Очищает все недуги выбранной цели." : "Clears every affliction on the selected target.");
+                GUILayout.EndHorizontal();
+
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button(Ru ? "Окаменить" : "Petrify", Theme.LinkBtn, GUILayout.Height(28))) GameApi.PetrifyPlayer(target);
+                TipLast(Ru ? "Выставляет окаменение выбранной цели на 100%. Для других игроков нужны права хоста." : "Sets the selected target's petrify amount to 100%. Remote targets require host.");
+                if (GUILayout.Button(Ru ? "Снять окаменение" : "Clear petrify", Theme.LinkBtn, GUILayout.Height(28))) GameApi.ClearPetrify(target);
+                TipLast(Ru ? "Сбрасывает окаменение выбранной цели." : "Clears petrify from the selected target.");
+                GUILayout.EndHorizontal();
+
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button(Ru ? "Добавить стрелу" : "Add arrow", Theme.LinkBtn, GUILayout.Height(28))) GameApi.AddArrowPrank(target, 1);
+                TipLast(Ru ? "Надежно работает на своем персонаже; чужому игроку стрелу должен добавить его клиент." : "Works reliably on your own character; a remote target's client owns arrow placement.");
+                if (GUILayout.Button(Ru ? "Вытащить стрелы" : "Remove arrows", Theme.LinkBtn, GUILayout.Height(28))) GameApi.ClearArrows(target);
+                TipLast(Ru ? "Снимает физические стрелы с выбранной цели. У хоста может запросить снятие у владельца цели." : "Removes physical arrows from the selected target. As host, asks the target owner to remove them.");
                 GUILayout.EndHorizontal();
 
                 if (GUILayout.Button(Ru ? "Забить выбранным предметом" : "Stuff with selected item", Theme.DonateBtn, GUILayout.Height(32)))
@@ -2710,6 +3427,21 @@ namespace PeakMX
             GUILayout.Space(6);
             GUILayout.Label((Ru ? "Выбран: " : "Selected: ") + GameApi.PlayerDisplayName(c), Theme.Section);
             GUILayout.Label(GameApi.PlayerDetails(c, Ru), Theme.LabelDim);
+
+            if (string.IsNullOrWhiteSpace(_nicknameInput))
+                _nicknameInput = GameApi.LocalNickname();
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(Ru ? "Ник:" : "Nick:", Theme.LabelDim, GUILayout.Width(54));
+            _nicknameInput = GUILayout.TextField(_nicknameInput ?? "", Theme.LinkBtn, GUILayout.Height(28));
+            if (GUILayout.Button(Ru ? "Сменить" : "Set", Theme.LinkBtn, GUILayout.Width(88), GUILayout.Height(28)))
+                GameApi.SetLocalNickname(_nicknameInput);
+            GUILayout.EndHorizontal();
+            TipLast(Ru ? "Меняет твой отображаемый Photon-ник. SteamID не меняется." : "Changes your displayed Photon nickname. SteamID is unchanged.");
+
+            GUILayout.BeginHorizontal();
+            if (AdminActionButton(Ru ? "Скопировать вид" : "Clone look", Ru ? "Копирует одежду, цвет и косметику выбранного игрока на тебя." : "Copies the selected player's outfit, color, and cosmetics onto you.")) GameApi.CloneLocalAppearanceFrom(c, false);
+            if (AdminActionButton(Ru ? "Клон + ник" : "Clone + nick", Ru ? "Копирует внешний вид выбранного игрока и ставит тебе такой же отображаемый ник." : "Copies the selected player's appearance and applies the same displayed nickname to you.")) GameApi.CloneLocalAppearanceFrom(c, true);
+            GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
             if (AdminActionButton(Ru ? "Телепорт к нему" : "Teleport to", Ru ? "Переместиться к выбранному игроку." : "Move yourself to the selected player.")) GameApi.WarpToPlayer(c);
@@ -3373,9 +4105,10 @@ namespace PeakMX
         /// <summary>One-time donation reminder, shown once per game session unless disabled in config.</summary>
         public static void DrawDonateNotice()
         {
+            Theme.EnsureBuilt();
+            SyncThemeTextureCache();
             if (_noticeDismissed || !ModConfig.ShowDonateNotice.Value)
                 return;
-            Theme.EnsureBuilt();
             ApplyFont();
             float noticeWidth = 420f;
             float noticeHeight = _langOpen ? Mathf.Min(660f, Screen.height - 80f) : Mathf.Min(520f, Screen.height - 80f);
@@ -3809,6 +4542,28 @@ namespace PeakMX
         private static Texture2D _brandIconTex;
         private static GUIStyle _brandIconText;
         private static GUIStyle _itemIconText;
+
+        private static void SyncThemeTextureCache(bool force = false)
+        {
+            if (!force && _themeVersion == Theme.Version)
+                return;
+
+            _themeVersion = Theme.Version;
+            _lineTex = null;
+            _sliderFillTex = null;
+            _headerTex = null;
+            _accentTex = null;
+            _brandIconTex = null;
+            _tileBg = null;
+            _frameOn = null;
+            _frameOff = null;
+            _badgeTileOn = null;
+            _badgeTileOff = null;
+            _badgeTileBg = null;
+            _badgeStripeOn = null;
+            _badgeStripeOff = null;
+        }
+
         private static void HLine()
         {
             if (_lineTex == null) _lineTex = Theme.Tex(Theme.PanelLight);
@@ -3839,9 +4594,9 @@ namespace PeakMX
         private static Texture2D BuildBrandIcon(int size)
         {
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { hideFlags = HideFlags.HideAndDontSave };
-            Color bg = new Color(0.050f, 0.064f, 0.078f, 1f);
-            Color border = new Color(0.255f, 0.835f, 0.541f, 1f);
-            Color mountain = new Color(0.118f, 0.302f, 0.220f, 1f);
+            Color bg = Theme.Bg;
+            Color border = Theme.Accent;
+            Color mountain = Theme.AccentDim;
             Color peak = new Color(1.000f, 0.851f, 0.400f, 1f);
             float radius = size * 0.18f;
             Vector2 center = new Vector2(size * 0.5f, size * 0.5f);
@@ -3886,9 +4641,11 @@ namespace PeakMX
 
         private static void DrawDonationSupportPanel(bool compact)
         {
+            const int CollapsedDonationRows = 3;
             DonationSupport.Refresh();
             DonationGoal goal = DonationSupport.Goal;
             var supporters = DonationSupport.Supporters;
+            var latest = DonationSupport.Latest;
 
             GUILayout.Space(6);
             GUILayout.Label(Ru ? "Спасибо за поддержку" : "Thanks for the support", Theme.Section);
@@ -3914,8 +4671,8 @@ namespace PeakMX
 
             GUILayout.Label(
                 Ru
-                    ? $"Учитываются донаты за {DonationSupport.HiddenOlderThanDays} дней от {DonationSupport.MinPublicAmount:0} RUB; суммы переведены в валюту интерфейса."
-                    : $"Counting donations from the last {DonationSupport.HiddenOlderThanDays} days from {DonationSupport.MinPublicAmount:0} RUB; amounts are converted to the interface currency.",
+                    ? $"Сбор считает донаты за {DonationSupport.HiddenOlderThanDays} дней; именные донатеры показываются от {DonationSupport.MinPublicAmount:0} RUB суммарно, anonymous - отдельными платежами."
+                    : $"The goal counts donations from the last {DonationSupport.HiddenOlderThanDays} days; named supporters are shown from {DonationSupport.MinPublicAmount:0} RUB total, anonymous payments stay separate.",
                 Theme.LabelDim);
 
             if (!DonationSupport.HasLoaded && DonationSupport.IsLoading)
@@ -3924,34 +4681,49 @@ namespace PeakMX
                 return;
             }
 
-            int count = supporters != null ? supporters.Count : 0;
-            if (count <= 0)
+            int latestCount = latest != null ? latest.Count : 0;
+            if (latestCount > 0)
+            {
+                GUILayout.Space(4);
+                GUILayout.Label(Ru ? "Последние донаты" : "Latest donations", Theme.Label);
+                int latestMax = _showAllDonors ? latestCount : Mathf.Min(CollapsedDonationRows, latestCount);
+                for (int i = 0; i < latestMax; i++)
+                {
+                    var donation = latest[i];
+                    string when = string.IsNullOrWhiteSpace(donation.LastDonationAt) ? "" : " · " + ShortDonationDate(donation.LastDonationAt);
+                    GUILayout.Label(
+                        (i + 1)
+                        + ". "
+                        + donation.Name
+                        + " - "
+                        + FormatDonationAmount(donation.Amount, donation.Currency)
+                        + when,
+                        Theme.Label);
+                }
+            }
+
+            if (latestCount <= 0)
             {
                 GUILayout.Label(Ru ? "Пока нет донатов для списка спасибо." : "No recent supporters to show yet.", Theme.LabelDim);
                 return;
             }
 
-            int max = _showAllDonors ? count : Mathf.Min(10, count);
-            for (int i = 0; i < max; i++)
-            {
-                var supporter = supporters[i];
-                GUILayout.Label(
-                    (i + 1)
-                    + ". "
-                    + supporter.Name
-                    + " - "
-                    + FormatDonationAmount(supporter.Amount, supporter.Currency),
-                    Theme.Label);
-            }
-
-            if (count > 10)
+            if (latestCount > CollapsedDonationRows)
             {
                 string text = _showAllDonors
                     ? (Ru ? "Свернуть список" : "Collapse list")
-                    : (Ru ? $"Показать всех ({count})" : $"Show all ({count})");
+                    : (Ru ? $"Показать всех ({latestCount})" : $"Show all ({latestCount})");
                 if (GUILayout.Button(text, Theme.LinkBtn, GUILayout.Height(26)))
                     _showAllDonors = !_showAllDonors;
             }
+        }
+
+        private static string ShortDonationDate(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "";
+            string text = value.Replace("T", " ").Replace("Z", "");
+            return text.Length > 16 ? text.Substring(0, 16) : text;
         }
 
         private static string FormatDonationAmount(double amount, string currency)

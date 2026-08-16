@@ -5,33 +5,51 @@ namespace PeakMX
     /// <summary>Shared IMGUI styles and textures for the overlay.</summary>
     public static class Theme
     {
+        public const string DefaultAccentHex = "#41D58A";
+        public const string DefaultActionHex = "#599FF4";
+
         public static readonly Color Bg = C(0.071f, 0.082f, 0.098f);
-        public static readonly Color HeaderBg = C(0.114f, 0.255f, 0.180f);
+        public static Color HeaderBg = C(0.114f, 0.255f, 0.180f);
+        public static Color HeaderDim = C(0.078f, 0.157f, 0.122f);
         public static readonly Color Panel = C(0.133f, 0.149f, 0.176f);
         public static readonly Color PanelLight = C(0.180f, 0.200f, 0.231f);
         public static readonly Color PanelHi = C(0.235f, 0.259f, 0.298f);
-        public static readonly Color Accent = C(0.255f, 0.835f, 0.541f);
-        public static readonly Color AccentHi = C(0.345f, 0.918f, 0.616f);
-        public static readonly Color AccentDim = C(0.157f, 0.392f, 0.282f);
+        public static Color Accent = C(0.255f, 0.835f, 0.541f);
+        public static Color AccentHi = C(0.345f, 0.918f, 0.616f);
+        public static Color AccentDim = C(0.157f, 0.392f, 0.282f);
         public static readonly Color Text = C(0.949f, 0.957f, 0.965f);
         public static readonly Color TextDim = C(0.722f, 0.753f, 0.792f);
-        public static readonly Color Donate = C(0.349f, 0.624f, 0.957f);
-        public static readonly Color DonateHi = C(0.447f, 0.710f, 1.000f);
+        public static Color Donate = C(0.349f, 0.624f, 0.957f);
+        public static Color DonateHi = C(0.447f, 0.710f, 1.000f);
         public static readonly Color Gold = C(1.000f, 0.851f, 0.400f);
-        public static readonly Color DarkOnAccent = C(0.043f, 0.094f, 0.067f);
+        public static Color DarkOnAccent = C(0.043f, 0.094f, 0.067f);
+        public static Color TextOnAction = Color.white;
 
         public static GUIStyle Window, Title, Subtitle, Section, Label, LabelDim, DonateText, TipText;
         public static GUIStyle NavItem, NavItemActive, Toggle, ToggleOn, DonateBtn, LinkBtn, CloseBtn, DangerBtn, SuccessBtn;
         public static GUIStyle SliderBar, SliderThumb, Panel9, Tooltip, Card, SwitchOn, SwitchOff, RowLabel, RowHover;
-        public static GUIStyle ListItem, ListItemActive, Chip, ChipActive, FoldoutBtn, FoldoutBtnOpen;
+        public static GUIStyle ListItem, ListItemActive, Chip, ChipActive, FoldoutBtn, FoldoutBtnOpen, TextInput, TextArea;
         public static Texture2D KnobTex;
+        public static int Version { get; private set; }
 
         private static bool _built;
+        private static string _builtAccentHex;
+        private static string _builtActionHex;
 
         public static void EnsureBuilt()
         {
-            if (_built)
+            string accentHex = NormalizeHex(ModConfig.AccentColorHex?.Value, DefaultAccentHex);
+            string actionHex = NormalizeHex(ModConfig.ActionColorHex?.Value, DefaultActionHex);
+            bool paletteChanged = !string.Equals(_builtAccentHex, accentHex, System.StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(_builtActionHex, actionHex, System.StringComparison.OrdinalIgnoreCase);
+
+            if (_built && !paletteChanged)
                 return;
+
+            ApplyPalette(accentHex, actionHex);
+            _builtAccentHex = accentHex;
+            _builtActionHex = actionHex;
+            Version++;
             _built = true;
 
             Window = Rounded(GUI.skin.box, Bg, 14, Text);
@@ -88,12 +106,12 @@ namespace PeakMX
             ToggleOn.margin = new RectOffset(0, 8, 4, 0);
             SetHover(ToggleOn, AccentHi, DarkOnAccent);
 
-            DonateBtn = Rounded(GUI.skin.button, Donate, 8, Color.white);
+            DonateBtn = Rounded(GUI.skin.button, Donate, 8, TextOnAction);
             DonateBtn.fontSize = 14;
             DonateBtn.wordWrap = false;
             DonateBtn.fontStyle = FontStyle.Bold;
             DonateBtn.padding = new RectOffset(14, 14, 7, 7);
-            SetHover(DonateBtn, DonateHi, Color.white);
+            SetHover(DonateBtn, DonateHi, TextOnAction);
 
             LinkBtn = Rounded(GUI.skin.button, PanelLight, 7, Text);
             LinkBtn.fontSize = 12;
@@ -101,6 +119,19 @@ namespace PeakMX
             LinkBtn.padding = new RectOffset(12, 12, 7, 7);
             LinkBtn.margin = new RectOffset(0, 6, 2, 2);
             SetHover(LinkBtn, AccentDim, Color.white);
+
+            TextInput = Rounded(GUI.skin.textField, PanelLight, 7, Text);
+            TextInput.fontSize = 12;
+            TextInput.padding = new RectOffset(10, 10, 7, 7);
+            TextInput.margin = new RectOffset(0, 6, 2, 2);
+            TextInput.wordWrap = false;
+            TextInput.clipping = TextClipping.Clip;
+
+            TextArea = Rounded(GUI.skin.textArea, PanelLight, 7, Text);
+            TextArea.fontSize = 12;
+            TextArea.padding = new RectOffset(10, 10, 8, 8);
+            TextArea.margin = new RectOffset(0, 6, 2, 2);
+            TextArea.wordWrap = true;
 
             CloseBtn = new GUIStyle(LinkBtn) { alignment = TextAnchor.MiddleCenter };
 
@@ -219,6 +250,87 @@ namespace PeakMX
 
         // ---- helpers ----
         private static Color C(float r, float g, float b, float a = 1f) => new Color(r, g, b, a);
+
+        private static void ApplyPalette(string accentHex, string actionHex)
+        {
+            Accent = ColorFromHex(accentHex, C(0.255f, 0.835f, 0.541f));
+            AccentHi = Mix(Accent, Color.white, 0.16f);
+            AccentDim = Mix(Panel, Accent, 0.42f);
+            HeaderBg = Mix(Bg, Accent, 0.30f);
+            HeaderDim = Mix(Bg, Accent, 0.16f);
+            DarkOnAccent = ContrastText(Accent);
+
+            Donate = ColorFromHex(actionHex, C(0.349f, 0.624f, 0.957f));
+            DonateHi = Mix(Donate, Color.white, 0.18f);
+            TextOnAction = ContrastText(Donate);
+        }
+
+        private static Color Mix(Color a, Color b, float t)
+        {
+            Color c = Color.Lerp(a, b, Mathf.Clamp01(t));
+            c.a = Mathf.Lerp(a.a, b.a, Mathf.Clamp01(t));
+            return c;
+        }
+
+        private static Color ContrastText(Color color)
+        {
+            float luminance = 0.2126f * color.r + 0.7152f * color.g + 0.0722f * color.b;
+            return luminance > 0.54f ? C(0.043f, 0.052f, 0.061f) : Color.white;
+        }
+
+        public static Color ColorFromHex(string value, Color fallback)
+        {
+            string hex = NormalizeHex(value, null);
+            if (string.IsNullOrEmpty(hex))
+                return fallback;
+
+            try
+            {
+                byte r = byte.Parse(hex.Substring(1, 2), System.Globalization.NumberStyles.HexNumber);
+                byte g = byte.Parse(hex.Substring(3, 2), System.Globalization.NumberStyles.HexNumber);
+                byte b = byte.Parse(hex.Substring(5, 2), System.Globalization.NumberStyles.HexNumber);
+                return new Color(r / 255f, g / 255f, b / 255f, 1f);
+            }
+            catch
+            {
+                return fallback;
+            }
+        }
+
+        public static string ColorToHex(Color color)
+        {
+            int r = Mathf.Clamp(Mathf.RoundToInt(color.r * 255f), 0, 255);
+            int g = Mathf.Clamp(Mathf.RoundToInt(color.g * 255f), 0, 255);
+            int b = Mathf.Clamp(Mathf.RoundToInt(color.b * 255f), 0, 255);
+            return "#" + r.ToString("X2") + g.ToString("X2") + b.ToString("X2");
+        }
+
+        public static string NormalizeHex(string value, string fallback)
+        {
+            string raw = (value ?? "").Trim();
+            if (raw.StartsWith("#"))
+                raw = raw.Substring(1);
+            if (raw.Length == 3)
+                raw = string.Concat(raw[0], raw[0], raw[1], raw[1], raw[2], raw[2]);
+
+            if (raw.Length == 6)
+            {
+                bool ok = true;
+                for (int i = 0; i < raw.Length; i++)
+                {
+                    char ch = raw[i];
+                    if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')))
+                    {
+                        ok = false;
+                        break;
+                    }
+                }
+                if (ok)
+                    return "#" + raw.ToUpperInvariant();
+            }
+
+            return fallback;
+        }
 
         /// <summary>Flat 1x1 fill texture (for bands and dividers).</summary>
         public static Texture2D Tex(Color c)

@@ -193,7 +193,51 @@ function parseManualSupporters(value) {
 
 function publicDonationName(value) {
   const name = clipText(value, 80);
-  return name || "Anonymous";
+  return isAnonymousDonationName(name) ? "" : name;
+}
+
+function donationDisplayName(value, anonymous = false) {
+  if (anonymous)
+    return "Anonymous";
+  return publicDonationName(value);
+}
+
+function isAnonymousDonationName(value) {
+  const name = (clipText(value, 80) || "").trim();
+  if (!name)
+    return true;
+
+  const compact = name
+    .toLowerCase()
+    .replace(/[\s._-]+/g, "");
+
+  return [
+    "anonymous",
+    "anon",
+    "anonymoususer",
+    "hidden",
+    "unknown",
+    "unknownuser",
+    "аноним",
+    "анонимный",
+    "анонимная",
+    "анонимно",
+    "скрыто",
+    "неизвестно",
+  ].includes(compact);
+}
+
+function hasAnonymousDonationFlag(value) {
+  if (!value || typeof value !== "object")
+    return false;
+
+  return [
+    value.is_anonymous,
+    value.isAnonymous,
+    value.anonymous,
+    value.hidden,
+    value.is_hidden,
+  ].some((flag) => flag === true || flag === 1 || String(flag || "").toLowerCase() === "true" || String(flag || "") === "1");
 }
 
 function formatDonationAmount(value) {
@@ -298,35 +342,78 @@ function convertDonationAmount(amount, sourceCurrency, targetCurrency, rates) {
   return value / sourceRate * targetRate;
 }
 
-function donationEntry(name, amount, currency, createdAt = null) {
-  const normalizedName = publicDonationName(name);
+function donationEntry(name, amount, currency, createdAt = null, anonymous = false) {
+  const normalizedName = donationDisplayName(name, anonymous);
   const normalizedAmount = formatDonationAmount(amount);
-  if (normalizedAmount <= 0)
+  if (!normalizedName || normalizedAmount <= 0)
     return null;
   return {
     name: normalizedName,
     amount: normalizedAmount,
     currency: donationCurrency(currency, "RUB"),
     createdAt,
+    anonymous,
   };
 }
 
 function donationEntryFromDonation(donation) {
   if (!donation || typeof donation !== "object")
     return null;
+  const name = donation?.username || donation?.name || donation?.user_name || donation?.display_name || donation?.user?.display_name || donation?.user?.name;
+  const anonymous = hasAnonymousDonationFlag(donation) || isAnonymousDonationName(name);
 
   return donationEntry(
-    donation?.username || donation?.name || donation?.user_name || donation?.display_name,
+    name,
     readDonationAmount(donation),
     readDonationCurrency(donation),
-    readDonationDate(donation)
+    readDonationDate(donation),
+    anonymous
   );
+}
+
+function donationParseCounts(donations) {
+  const counts = {
+    accepted: 0,
+    namedAccepted: 0,
+    anonymousAccepted: 0,
+    missingAmountSkipped: 0,
+    nonPositiveAmountSkipped: 0,
+  };
+
+  for (const donation of donations || []) {
+    if (!donation || typeof donation !== "object")
+      continue;
+    const name = donation?.username || donation?.name || donation?.user_name || donation?.display_name || donation?.user?.display_name || donation?.user?.name;
+    const anonymous = hasAnonymousDonationFlag(donation) || isAnonymousDonationName(name);
+    const amount = readDonationAmount(donation);
+    if (amount == null) {
+      counts.missingAmountSkipped += 1;
+      continue;
+    }
+    if (formatDonationAmount(amount) <= 0) {
+      counts.nonPositiveAmountSkipped += 1;
+      continue;
+    }
+    counts.accepted += 1;
+    if (anonymous)
+      counts.anonymousAccepted += 1;
+    else
+      counts.namedAccepted += 1;
+  }
+
+  return counts;
 }
 
 function donationEntries(donations, manualSupporters = []) {
   const entries = [];
   for (const supporter of manualSupporters) {
-    const entry = donationEntry(supporter?.name, supporter?.amount, supporter?.currency, supporter?.lastDonationAt);
+    const entry = donationEntry(
+      supporter?.name,
+      supporter?.amount,
+      supporter?.currency,
+      supporter?.lastDonationAt,
+      isAnonymousDonationName(supporter?.name)
+    );
     if (entry)
       entries.push(entry);
   }
@@ -338,7 +425,7 @@ function donationEntries(donations, manualSupporters = []) {
   return entries;
 }
 
-function filterRecentDonationEntries(entries, cutoffMs, minRubAmount, rates) {
+function filterRecentDonationEntries(entries, cutoffMs) {
   return (entries || []).filter((entry) => {
     if (entry.createdAt && cutoffMs > 0) {
       const time = Date.parse(entry.createdAt);
@@ -346,6 +433,25 @@ function filterRecentDonationEntries(entries, cutoffMs, minRubAmount, rates) {
         return false;
     }
 
+    return true;
+  });
+}
+
+function filterDonationSupportersByMinRub(supporters, minRubAmount, rates) {
+  if (!minRubAmount || minRubAmount <= 0)
+    return supporters || [];
+
+  return (supporters || []).filter((supporter) => {
+    const rubAmount = convertDonationAmount(supporter.amount, supporter.currency, "RUB", rates);
+    return rubAmount == null || rubAmount >= minRubAmount;
+  });
+}
+
+function filterDonationEntriesByMinRub(entries, minRubAmount, rates) {
+  if (!minRubAmount || minRubAmount <= 0)
+    return entries || [];
+
+  return (entries || []).filter((entry) => {
     const rubAmount = convertDonationAmount(entry.amount, entry.currency, "RUB", rates);
     return rubAmount == null || rubAmount >= minRubAmount;
   });
@@ -353,10 +459,23 @@ function filterRecentDonationEntries(entries, cutoffMs, minRubAmount, rates) {
 
 function aggregateDonationEntries(entries, displayCurrency, rates) {
   const map = new Map();
+  const anonymousRows = [];
   for (const entry of entries || []) {
     const converted = convertDonationAmount(entry.amount, entry.currency, displayCurrency, rates);
     const amount = converted == null ? entry.amount : converted;
     const currency = converted == null ? entry.currency : displayCurrency;
+    if (entry.anonymous) {
+      anonymousRows.push({
+        name: entry.name || "Anonymous",
+        amount,
+        currency,
+        count: 1,
+        lastDonationAt: entry.createdAt,
+        anonymous: true,
+      });
+      continue;
+    }
+
     const key = entry.name.toLocaleLowerCase("en-US");
     const old = map.get(key) || {
       name: entry.name,
@@ -373,7 +492,7 @@ function aggregateDonationEntries(entries, displayCurrency, rates) {
     map.set(key, old);
   }
 
-  return Array.from(map.values())
+  return Array.from(map.values()).concat(anonymousRows)
     .sort((a, b) => String(b.lastDonationAt || "").localeCompare(String(a.lastDonationAt || "")) || (b.amount - a.amount) || a.name.localeCompare(b.name));
 }
 
@@ -382,6 +501,25 @@ function sumDonationEntries(entries, currency, rates) {
     const converted = convertDonationAmount(entry.amount, entry.currency, currency, rates);
     return converted == null ? sum : sum + converted;
   }, 0);
+}
+
+function latestDonationEntries(entries, displayCurrency, rates, limit) {
+  return (entries || [])
+    .slice()
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+    .slice(0, limit)
+    .map((entry) => {
+      const converted = convertDonationAmount(entry.amount, entry.currency, displayCurrency, rates);
+      const amount = converted == null ? entry.amount : converted;
+      const currency = converted == null ? entry.currency : displayCurrency;
+      return {
+        name: entry.name,
+        amount: Number(amount.toFixed(2)),
+        currency,
+        createdAt: entry.createdAt,
+        anonymous: !!entry.anonymous,
+      };
+    });
 }
 
 function aggregateDonationSupporters(donations, manualSupporters = [], cutoffMs = 0, minAmount = 0) {
@@ -549,7 +687,7 @@ function normalizeDonationRow(row) {
 
   return {
     ...row,
-    username: name || "Anonymous",
+    username: hasAnonymousDonationFlag(row) ? "" : (name || "Anonymous"),
     amount,
     currency: readDonationCurrency(row),
     created_at: readDonationDate(row),
@@ -590,7 +728,15 @@ async function fetchDonationAlertsAccessToken(widgetToken) {
     });
     if (tokenResponse.ok) {
       const tokenBody = await tokenResponse.json();
-      const apiToken = clipText(tokenBody?.data?.token || tokenBody?.token, 4096);
+      const apiToken = clipText(
+        tokenBody?.data?.access_token ||
+        tokenBody?.data?.accessToken ||
+        tokenBody?.data?.token ||
+        tokenBody?.access_token ||
+        tokenBody?.accessToken ||
+        tokenBody?.token,
+        4096
+      );
       if (apiToken)
         return apiToken;
     }
@@ -610,8 +756,20 @@ async function fetchDonationAlertsAccessToken(widgetToken) {
     throw new Error(`donationalerts_widget_${response.status}`);
 
   const body = await response.text();
-  const match = body.match(/access_token[\s\u00a0]*=[\s\u00a0]*(['"])([-.0-9A-Z\\_a-z]+)\1/);
-  const accessToken = match ? match[2].replace(/\\/g, "") : "";
+  const patterns = [
+    /access_token[\s\u00a0]*[:=][\s\u00a0]*(['"])([^'"]+)\1/i,
+    /accessToken[\s\u00a0]*[:=][\s\u00a0]*(['"])([^'"]+)\1/i,
+    /token_api[\s\u00a0]*[:=][\s\u00a0]*(['"])([^'"]+)\1/i,
+    /api_token[\s\u00a0]*[:=][\s\u00a0]*(['"])([^'"]+)\1/i,
+  ];
+  let accessToken = "";
+  for (const pattern of patterns) {
+    const match = body.match(pattern);
+    if (match?.[2]) {
+      accessToken = match[2].replace(/\\/g, "");
+      break;
+    }
+  }
   if (!accessToken)
     throw new Error("donationalerts_widget_no_access_token");
   return accessToken;
@@ -1093,32 +1251,6 @@ async function bumpCounter(env, metric) {
   ).bind(isoDay(), metric).run();
 }
 
-function safeMetricPart(value) {
-  return String(value || "unknown")
-    .replace(/[^a-zA-Z0-9_.-]/g, "_")
-    .slice(0, 80) || "unknown";
-}
-
-async function bumpEventCounters(env, events) {
-  const counters = new Map();
-  for (const event of events || []) {
-    if (!event || !event.name)
-      continue;
-    const type = safeMetricPart(event.type || "event");
-    const name = safeMetricPart(event.name);
-    const metric = `event:${type}:${name}`;
-    counters.set(metric, (counters.get(metric) || 0) + 1);
-  }
-
-  for (const [metric, amount] of counters) {
-    await env.DB.prepare(
-      `INSERT INTO daily_counters(day, metric, value)
-        VALUES (?, ?, ?)
-        ON CONFLICT(day, metric) DO UPDATE SET value = value + ?`
-    ).bind(isoDay(), metric, amount, amount).run();
-  }
-}
-
 function shouldNotifyTelegram(env, kind) {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID)
     return false;
@@ -1153,7 +1285,7 @@ function telegramMessage(kind, payload) {
   ];
 
   if (payload.installId)
-    lines.push(`🆔 ${c(payload.installId, "GUID нет", 96)}`);
+    lines.push(`🆔 ${c(payload.installId, "ID нет", 96)}`);
   if (payload.nick || payload.steamId)
     lines.push(`👤 <b>${h(payload.nick, "Без ника", 80)}</b>${payload.steamId ? ` · 🟦 ${c(payload.steamId, "SteamID нет", 64)}` : ""}`);
   if (payload.country || payload.region || payload.city || payload.ip)
@@ -1228,6 +1360,60 @@ async function sendTelegramMessage(env, chatId, textBody, extra = {}) {
     throw new Error(`telegram_send_${response.status}`);
 
   return response;
+}
+
+function telegramFileIdFromResult(body) {
+  const message = body?.result || body;
+  if (message?.document?.file_id)
+    return message.document.file_id;
+  if (message?.photo?.length)
+    return message.photo[message.photo.length - 1]?.file_id || null;
+  return message?.animation?.file_id || message?.video?.file_id || null;
+}
+
+function telegramMessageIdFromResult(body) {
+  return body?.result?.message_id || body?.message_id || null;
+}
+
+async function sendTelegramDocumentBytes(env, chatId, bytes, fileName, contentType, caption, extra = {}) {
+  if (!env.TELEGRAM_BOT_TOKEN)
+    throw new Error("telegram_token_missing");
+
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  form.append("caption", caption || "");
+  form.append("parse_mode", "HTML");
+  form.append("disable_web_page_preview", "true");
+  if (extra.reply_markup)
+    form.append("reply_markup", JSON.stringify(extra.reply_markup));
+  form.append("document", new Blob([bytes], { type: contentType || "application/octet-stream" }), fileName || "attachment.bin");
+
+  const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendDocument`, {
+    method: "POST",
+    body: form,
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok)
+    throw new Error(`telegram_document_${response.status}`);
+  return body;
+}
+
+async function sendTelegramDocumentFileId(env, chatId, fileId, caption, extra = {}) {
+  if (!env.TELEGRAM_BOT_TOKEN)
+    throw new Error("telegram_token_missing");
+
+  const response = await telegramApi(env, "sendDocument", {
+    chat_id: chatId,
+    document: fileId,
+    caption: caption || "",
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    ...extra,
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok)
+    throw new Error(`telegram_file_${response.status}`);
+  return body;
 }
 
 async function editTelegramMessage(env, chatId, messageId, textBody, extra = {}) {
@@ -1331,7 +1517,7 @@ function formatClientCard(row, options = {}) {
   if (options.showFirst)
     lines.push(`🆕 Первый запуск: ${codeValue(shortTime(row.first_seen_at), "неизвестно", 24)}`);
 
-  lines.push(`🆔 ${codeValue(row.install_id, "GUID нет", 96)}  ·  🕓 ${codeValue(shortTime(row.last_seen_at), "время неизвестно", 24)}`);
+  lines.push(`🆔 ${codeValue(row.install_id, "ID нет", 96)}  ·  🕓 ${codeValue(shortTime(row.last_seen_at), "время неизвестно", 24)}`);
   return lines.join("\n");
 }
 
@@ -1675,27 +1861,7 @@ async function handleLegacyEventGet(request, env, ctx) {
   if (!installId)
     return json({ ok: false, error: "missing_install_id" }, 400);
 
-  const payload = {
-    id: installId,
-    type: url.searchParams.get("type") || "generic",
-    name: url.searchParams.get("name") || "",
-    value: url.searchParams.get("value"),
-    ts: new Date().toISOString(),
-  };
-
-  await ensureInstall(env, installId, request);
-  await bumpCounter(env, "event_get");
-  await bumpEventCounters(env, [payload]);
-  const key = await storeStructured(env, request, "event", installId, payload);
-  enqueueOutbound(ctx, env, "event_get", {
-    installId,
-    eventType: payload.type,
-    eventName: payload.name,
-    stored: key,
-    ...getCfMeta(request),
-  });
-
-  return json({ ok: true, stored: key });
+  return json({ ok: true, ignored: true, reason: "command_usage_disabled" });
 }
 
 async function handleEventPost(request, env, ctx) {
@@ -1706,12 +1872,6 @@ async function handleEventPost(request, env, ctx) {
     const token = Array.isArray(data) ? null : (data?.t || null);
     if (!mustGetToken(request, env, token))
       return json({ ok: false, error: "forbidden" }, 403);
-
-    const events = Array.isArray(data)
-      ? data
-      : Array.isArray(data?.events)
-        ? data.events
-        : [data];
 
     const installId =
       (Array.isArray(data) ? data[0]?.id : data?.id) ||
@@ -1753,26 +1913,17 @@ async function handleEventPost(request, env, ctx) {
       return json({ ok: true, stored: key, kind: "client_log" });
     }
 
-    await ensureInstall(env, installId, request);
-    await bumpCounter(env, "event_post");
-    await bumpEventCounters(env, events);
-    const key = await putObject(env, request, "event-batch", installId, raw || "[]", contentType);
-    const accepted = events.filter(Boolean).length;
-    enqueueOutbound(ctx, env, "event_post", {
-      installId,
-      accepted,
-      stored: key,
-      ...getCfMeta(request),
-    });
-
     return json({
       ok: true,
-      accepted,
-      stored: key,
+      ignored: true,
+      accepted: 0,
+      reason: "command_usage_disabled",
     });
   }
 
-  return handleUpload(request, env, ctx, "event-upload");
+  if (!mustGetToken(request, env))
+    return json({ ok: false, error: "forbidden" }, 403);
+  return json({ ok: true, ignored: true, reason: "command_usage_disabled" });
 }
 
 async function handleUpload(request, env, ctx, forcedKind = null) {
@@ -1820,7 +1971,7 @@ async function handleStats(request, env) {
 
   const url = new URL(request.url);
   const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || 20)));
-  const [installs, online, active24h, active30d, launches, ret1, ret7, objects, counters, byDay, countries, cheats, recent, osRows, cpuRows, gpuRows, ramRows, bepinexRows, gameRows, providers, asns, timezones] = await Promise.all([
+  const [installs, online, active24h, active30d, launches, ret1, ret7, objects, counters, byDay, countries, recent, osRows, cpuRows, gpuRows, ramRows, bepinexRows, gameRows, providers, asns, timezones] = await Promise.all([
     env.DB.prepare("SELECT COUNT(*) AS count FROM installs").first(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM installs WHERE last_seen_at >= datetime('now', '-5 minutes')").first(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM installs WHERE last_seen_at >= datetime('now', '-1 day')").first(),
@@ -1832,6 +1983,7 @@ async function handleStats(request, env) {
     env.DB.prepare(
       `SELECT day, metric, value
         FROM daily_counters
+        WHERE metric NOT LIKE 'event:%'
         ORDER BY day DESC, metric ASC
         LIMIT 120`
     ).all(),
@@ -1847,14 +1999,6 @@ async function handleStats(request, env) {
       `SELECT COALESCE(last_country, '??') AS cc, COUNT(*) AS count
         FROM installs
         GROUP BY COALESCE(last_country, '??')
-        ORDER BY count DESC
-        LIMIT 25`
-    ).all(),
-    env.DB.prepare(
-      `SELECT metric, SUM(value) AS count
-        FROM daily_counters
-        WHERE metric LIKE 'event:%'
-        GROUP BY metric
         ORDER BY count DESC
         LIMIT 25`
     ).all(),
@@ -1952,10 +2096,7 @@ async function handleStats(request, env) {
     ret7: Number(ret7?.count || 0),
     byDay: byDay?.results || [],
     countries: countries?.results || [],
-    cheats: (cheats?.results || []).map((row) => ({
-      name: String(row.metric || "").replace(/^event:[^:]+:/, ""),
-      count: row.count,
-    })),
+    cheats: [],
     updated: new Date().toISOString(),
     now: new Date().toISOString(),
     totals: {
@@ -1986,7 +2127,7 @@ async function handleStats(request, env) {
 }
 
 async function handlePublicSummary(request, env) {
-  const [installs, online, active24h, active30d, launches, ret1, ret7, byDay, countries, cheats] = await Promise.all([
+  const [installs, online, active24h, active30d, launches, ret1, ret7, byDay, countries] = await Promise.all([
     env.DB.prepare("SELECT COUNT(*) AS count FROM installs").first(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM installs WHERE last_seen_at >= datetime('now', '-5 minutes')").first(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM installs WHERE last_seen_at >= datetime('now', '-1 day')").first(),
@@ -2009,14 +2150,6 @@ async function handlePublicSummary(request, env) {
         ORDER BY count DESC
         LIMIT 25`
     ).all(),
-    env.DB.prepare(
-      `SELECT metric, SUM(value) AS count
-        FROM daily_counters
-        WHERE metric LIKE 'event:%'
-        GROUP BY metric
-        ORDER BY count DESC
-        LIMIT 25`
-    ).all(),
   ]);
 
   const total = Number(installs?.count || 0);
@@ -2036,10 +2169,7 @@ async function handlePublicSummary(request, env) {
     ret7: Number(ret7?.count || 0),
     byDay: byDay?.results || [],
     countries: countries?.results || [],
-    cheats: (cheats?.results || []).map((row) => ({
-      name: String(row.metric || "").replace(/^event:[^:]+:/, ""),
-      count: row.count,
-    })),
+    cheats: [],
     totals: {
       installs: total,
       active24h: dau,
@@ -2050,7 +2180,7 @@ async function handlePublicSummary(request, env) {
   });
 }
 
-async function handleDonations(request, env) {
+async function handleDonations(request, env, ctx = null) {
   const url = new URL(request.url);
   const goalTitle = envText(env, "PEAK-MX support", "DONATION_GOAL_TITLE", "DONATIONALERTS_GOAL_TITLE");
   const configuredGoalTarget = envNumber(env, "DONATION_GOAL_TARGET", "DONATIONALERTS_GOAL_TARGET");
@@ -2115,8 +2245,11 @@ async function handleDonations(request, env) {
       try {
         accessToken = await fetchDonationAlertsAccessToken(widgetToken);
         donations = await fetchDonationAlertsDonations(accessToken, fetchPages);
-      } catch {
+        source = "donationalerts_widget_oauth";
+      } catch (error) {
+        fetchErrors.push(`widget_history_fallback:${error instanceof Error ? error.message : String(error)}`);
         donations = await fetchDonationAlertsWidgetDonations(widgetToken);
+        source = "donationalerts_widget_alerts";
       }
 
       if (goalRef) {
@@ -2128,7 +2261,6 @@ async function handleDonations(request, env) {
       } else if (accessToken) {
         donationGoal = await tryFetchGoal(accessToken, false);
       }
-      source = "donationalerts_widget";
     } catch (error) {
       fetchErrors.push(error instanceof Error ? error.message : String(error));
       source = "manual";
@@ -2136,8 +2268,16 @@ async function handleDonations(request, env) {
     }
   }
 
-  const recentEntries = filterRecentDonationEntries(donationEntries(donations, manualSupporters), cutoffMs, minPublicAmount, rates);
-  const supporters = aggregateDonationEntries(recentEntries, displayCurrency, rates)
+  const parseCounts = donationParseCounts(donations);
+  const allEntries = donationEntries(donations, manualSupporters);
+  const recentEntries = filterRecentDonationEntries(allEntries, cutoffMs);
+  const visibleRecentEntries = filterDonationEntriesByMinRub(recentEntries, minPublicAmount, rates);
+  const publicSupporters = filterDonationSupportersByMinRub(
+    aggregateDonationEntries(recentEntries, displayCurrency, rates),
+    minPublicAmount,
+    rates
+  );
+  const supporters = publicSupporters
     .slice(0, limit)
     .map((supporter) => ({
       name: supporter.name,
@@ -2145,7 +2285,9 @@ async function handleDonations(request, env) {
       currency: supporter.currency || displayCurrency,
       count: supporter.count,
       lastDonationAt: supporter.lastDonationAt,
+      anonymous: !!supporter.anonymous,
     }));
+  const latest = latestDonationEntries(visibleRecentEntries, displayCurrency, rates, limit);
 
   const baseGoalCurrency = configuredGoalTarget != null
     ? defaultCurrency
@@ -2155,7 +2297,7 @@ async function handleDonations(request, env) {
     : (donationGoal?.target && donationGoal.target > 0 ? donationGoal.target : defaultTargetRub);
   const baseRaised = manualRaised != null
     ? manualRaised
-    : (donationGoal?.target && donationGoal?.raised > 0 ? donationGoal.raised : sumDonationEntries(recentEntries, baseGoalCurrency, rates));
+    : sumDonationEntries(recentEntries, baseGoalCurrency, rates);
   const convertedTarget = convertDonationAmount(baseGoalTarget, baseGoalCurrency, displayCurrency, rates);
   const convertedRaised = convertDonationAmount(baseRaised, baseGoalCurrency, displayCurrency, rates);
   const goalTarget = convertedTarget == null ? baseGoalTarget : convertedTarget;
@@ -2176,15 +2318,593 @@ async function handleDonations(request, env) {
       percent: percent == null ? null : Number(percent.toFixed(1)),
     },
     supporters,
+    latest,
     hiddenOlderThanDays: visibleDays,
     minPublicAmount,
+    minPublicAmountMode: "named_total_anonymous_single_payment",
+    counts: {
+      rawDonations: donations.length,
+      manualSupporters: manualSupporters.length,
+      acceptedRawDonations: parseCounts.accepted,
+      namedAccepted: parseCounts.namedAccepted,
+      anonymousAccepted: parseCounts.anonymousAccepted,
+      missingAmountSkipped: parseCounts.missingAmountSkipped,
+      nonPositiveAmountSkipped: parseCounts.nonPositiveAmountSkipped,
+      parsedEntries: allEntries.length,
+      recentEntries: recentEntries.length,
+      visibleRecentEntries: visibleRecentEntries.length,
+      publicSupporters: publicSupporters.length,
+      latest: latest.length,
+    },
     updated: new Date().toISOString(),
   };
   if (fetchErrors.length > 0)
     response.warning = fetchErrors.slice(-2).join("; ");
 
+  ctx?.waitUntil?.(maybeNotifyDonationUpdates(env, latest, response.goal));
+
   return json(response, 200, {
     "cache-control": "public, max-age=300",
+  });
+}
+
+function moneyText(amount, currency) {
+  const value = Number(amount || 0);
+  const formatted = Number.isInteger(value)
+    ? String(value)
+    : value.toFixed(2).replace(/\.?0+$/, "");
+  return `${formatted} ${currency || "RUB"}`;
+}
+
+function donationKey(entry) {
+  return [
+    entry?.createdAt || "",
+    entry?.name || "",
+    entry?.amount || 0,
+    entry?.currency || "",
+  ].join("|");
+}
+
+function formatDonationLine(entry, index = null) {
+  const prefix = index == null ? "" : `${index}. `;
+  const time = entry?.createdAt ? ` · ${codeValue(shortTime(entry.createdAt), "?", 24)}` : "";
+  return `${prefix}<b>${htmlValue(entry?.name, "Без имени", 80)}</b> — <b>${escapeHtml(moneyText(entry?.amount, entry?.currency))}</b>${time}`;
+}
+
+async function donationTelegramNotificationsEnabled(env) {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID)
+    return false;
+  if (!(await telegramNotificationsEnabled(env)))
+    return false;
+  return (await getBotSetting(env, "donation_notify", "off")) === "on";
+}
+
+async function maybeNotifyDonationUpdates(env, latest, goal) {
+  if (!latest?.length || !(await donationTelegramNotificationsEnabled(env)))
+    return;
+
+  const newestKey = donationKey(latest[0]);
+  const lastSeen = await getBotSetting(env, "donation_last_seen", "");
+  if (!lastSeen) {
+    await setBotSetting(env, "donation_last_seen", newestKey);
+    return;
+  }
+  if (newestKey === lastSeen)
+    return;
+
+  const fresh = [];
+  for (const entry of latest) {
+    if (donationKey(entry) === lastSeen)
+      break;
+    fresh.push(entry);
+  }
+  if (!fresh.length) {
+    await setBotSetting(env, "donation_last_seen", newestKey);
+    return;
+  }
+
+  const goalLine = goal
+    ? `Сбор: <b>${escapeHtml(moneyText(goal.raised, goal.currency))}</b> / <b>${escapeHtml(moneyText(goal.target, goal.currency))}</b>${goal.percent != null ? ` (${escapeHtml(goal.percent)}%)` : ""}`
+    : "";
+  const lines = [
+    panelTitle("💸", "Новый донат PEAK-MX"),
+    "",
+    ...fresh.slice(0, 5).map((entry, index) => formatDonationLine(entry, index + 1)),
+    fresh.length > 5 ? `И ещё: <b>${escapeHtml(fresh.length - 5)}</b>` : "",
+    goalLine,
+  ].filter(Boolean);
+
+  await sendTelegramMessage(env, env.TELEGRAM_CHAT_ID, lines.join("\n"), { reply_markup: botKeyboard() });
+  await setBotSetting(env, "donation_last_seen", newestKey);
+}
+
+function normalizeFeedbackType(value) {
+  const type = String(value || "").trim().toLowerCase();
+  return ["suggestion", "bug", "other"].includes(type) ? type : "suggestion";
+}
+
+function normalizeFeedbackStatus(value) {
+  const status = String(value || "").trim().toLowerCase();
+  return ["new", "answered", "dev", "rejected", "closed"].includes(status) ? status : "new";
+}
+
+function feedbackTypeLabel(type) {
+  return {
+    suggestion: "предложение",
+    bug: "проблема",
+    other: "другое",
+  }[normalizeFeedbackType(type)] || "предложение";
+}
+
+function feedbackStatusLabel(status) {
+  return {
+    new: "новое",
+    answered: "есть ответ",
+    dev: "в разработке",
+    rejected: "отклонено",
+    closed: "закрыто",
+  }[normalizeFeedbackStatus(status)] || "новое";
+}
+
+function feedbackTicketCode() {
+  const day = new Date().toISOString().slice(2, 10).replace(/-/g, "");
+  const suffix = crypto.randomUUID().replace(/-/g, "").slice(0, 6).toUpperCase();
+  return `MX${day}-${suffix}`;
+}
+
+function feedbackDb(env) {
+  return env.FEEDBACK_DB || env.peakmx_feedback || env.DB;
+}
+
+function feedbackAttachmentMaxBytes(env) {
+  return Math.max(32 * 1024, Math.min(900 * 1024, Number(env.FEEDBACK_ATTACHMENT_MAX_BYTES || 350 * 1024)));
+}
+
+function cleanBase64(value) {
+  const raw = String(value || "").trim();
+  if (!raw)
+    return "";
+  return raw.replace(/^data:[^,]+,/i, "").replace(/\s+/g, "");
+}
+
+function base64ToBytes(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1)
+    bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function readFeedbackAttachment(data, env) {
+  const base64 = cleanBase64(data?.attachmentBase64 || data?.screenshotBase64 || data?.imageBase64 || data?.photoBase64);
+  if (!base64)
+    return null;
+
+  const bytes = base64ToBytes(base64);
+  const maxBytes = feedbackAttachmentMaxBytes(env);
+  if (bytes.byteLength > maxBytes)
+    throw new Error(`attachment_too_large_${bytes.byteLength}_${maxBytes}`);
+
+  const type = clipText(data?.attachmentType || data?.screenshotType || "image/jpeg", 80) || "image/jpeg";
+  const extension = type.includes("png") ? "png" : type.includes("webp") ? "webp" : "jpg";
+  const name = clipText(data?.attachmentName || data?.screenshotName || `peak-mx-feedback.${extension}`, 120) || `peak-mx-feedback.${extension}`;
+  return {
+    base64,
+    bytes,
+    type,
+    name,
+    size: bytes.byteLength,
+  };
+}
+
+async function getFeedbackByCode(env, code) {
+  return feedbackDb(env).prepare(
+    `SELECT id, ticket_code, type, status, install_id, steam_id, nick, contact, title, message,
+        mod_version, game_version, lang, os, screen, ip, country, region, city, colo, asn, as_org,
+        user_agent, accept_language, admin_reply, admin_note, created_at, updated_at, replied_at, closed_at
+      FROM feedback_messages
+      WHERE UPPER(ticket_code) = UPPER(?)
+      LIMIT 1`
+  ).bind(String(code || "").trim()).first();
+}
+
+async function getFeedbackComments(env, code, limit = 12) {
+  const rows = await feedbackDb(env).prepare(
+    `SELECT id, ticket_code, install_id, author, message, attachment_name, attachment_type,
+        attachment_size, attachment_base64, telegram_file_id, telegram_message_id, created_at
+      FROM feedback_comments
+      WHERE UPPER(ticket_code) = UPPER(?)
+      ORDER BY created_at ASC, id ASC
+      LIMIT ?`
+  ).bind(String(code || "").trim(), Math.max(1, Math.min(30, Number(limit) || 12))).all();
+  return rows?.results || [];
+}
+
+async function getFeedbackCommentById(env, id) {
+  return feedbackDb(env).prepare(
+    `SELECT id, ticket_code, install_id, author, message, attachment_name, attachment_type,
+        attachment_size, attachment_base64, telegram_file_id, telegram_message_id, created_at
+      FROM feedback_comments
+      WHERE id = ?
+      LIMIT 1`
+  ).bind(Number(id || 0)).first();
+}
+
+function feedbackPublicRow(row) {
+  return {
+    ticketCode: row.ticket_code,
+    type: row.type,
+    status: row.status,
+    title: row.title,
+    message: row.message,
+    adminReply: row.admin_reply,
+    commentsCount: Number(row.comments_count || 0),
+    latestCommentAt: row.latest_comment_at || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    repliedAt: row.replied_at,
+    closedAt: row.closed_at,
+  };
+}
+
+async function feedbackTelegramNotificationsEnabled(env) {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID)
+    return false;
+  if (!(await telegramNotificationsEnabled(env)))
+    return false;
+  return (await getFeedbackSetting(env, "feedback_notify", "on")) !== "off";
+}
+
+function feedbackTicketKeyboard(code, comments = []) {
+  const ticket = String(code || "").trim();
+  const fileRows = (comments || []).filter((comment) => comment?.telegram_file_id || comment?.attachment_base64).slice(-4);
+  const fileButtons = fileRows.map((comment) => ([
+    { text: `📎 Файл #${comment.id}`, callback_data: `/feedbackfile ${comment.id}` },
+  ]));
+  return {
+    inline_keyboard: [
+      [
+        { text: "↩️ Ответить", callback_data: `/feedbackreply ${ticket}` },
+        { text: "🛠 В разработку", callback_data: `/dev ${ticket}` },
+      ],
+      [
+        { text: "⛔ Отклонить", callback_data: `/reject ${ticket}` },
+        { text: "✅ Закрыть", callback_data: `/close ${ticket}` },
+      ],
+      ...fileButtons,
+      [
+        { text: "📬 Все обращения", callback_data: "/feedback new 10" },
+        { text: "🔔 Уведомления", callback_data: "/feedbacknotify" },
+      ],
+    ],
+  };
+}
+
+function formatFeedbackTicket(row, index = null, detailed = false) {
+  const prefix = index == null ? "" : `${index}. `;
+  const place = [row.city, row.region, row.country].filter(Boolean).join(", ") || "гео неизвестно";
+  const lines = [
+    `${prefix}📨 <b>${htmlValue(row.ticket_code, "тикет ?", 32)}</b> · ${htmlValue(feedbackTypeLabel(row.type), "тип ?", 32)} · <b>${htmlValue(feedbackStatusLabel(row.status), "статус ?", 32)}</b>`,
+    `👤 <b>${htmlValue(row.nick, "Без ника", 80)}</b> · 🟦 ${codeValue(row.steam_id, "SteamID нет", 64)}`,
+    `🆔 ${codeValue(row.install_id, "ID нет", 96)}`,
+    `🎮 mod ${htmlValue(row.mod_version, "?", 40)} · 🧩 game ${htmlValue(row.game_version, "?", 40)} · 🗣 ${htmlValue(row.lang, "язык ?", 32)}`,
+    `🌍 ${htmlValue(place, "гео неизвестно", 140)} · 🛰 ${codeValue(row.ip, "IP нет", 64)}`,
+    row.contact ? `📮 Контакт: ${htmlValue(row.contact, "нет", 160)}` : "",
+    row.title ? `📌 ${htmlValue(row.title, "без темы", 180)}` : "",
+    `💬 ${htmlValue(row.message, "сообщение пустое", detailed ? 1400 : 520)}`,
+    row.comments_count ? `➕ Дополнений: <b>${escapeHtml(row.comments_count)}</b>${row.latest_comment_at ? ` · ${codeValue(shortTime(row.latest_comment_at), "?", 24)}` : ""}` : "",
+    row.admin_reply ? `↩️ Ответ: ${htmlValue(row.admin_reply, "пусто", detailed ? 1200 : 420)}` : "",
+    row.admin_note ? `📝 Заметка: ${htmlValue(row.admin_note, "пусто", 420)}` : "",
+    detailed && row.os ? `🖥 ${htmlValue(row.os, "ОС неизвестна", 180)} · ${htmlValue(row.screen, "экран ?", 80)}` : "",
+    detailed && (row.asn || row.as_org) ? `🌐 ASN ${htmlValue(row.asn, "нет", 24)} · ${htmlValue(row.as_org, "провайдер неизвестен", 140)}` : "",
+    `🕓 ${codeValue(shortTime(row.created_at), "время неизвестно", 24)} · обновлено ${codeValue(shortTime(row.updated_at), "?", 24)}`,
+  ].filter(Boolean);
+  return lines.join("\n");
+}
+
+function formatFeedbackComment(comment, index = null) {
+  const prefix = index == null ? "" : `${index}. `;
+  const author = comment.author === "admin" ? "ты" : "пользователь";
+  const attachment = comment.attachment_name
+    ? `\n📎 ${htmlValue(comment.attachment_name, "файл", 120)} · ${htmlValue(comment.attachment_size, "?", 24)} байт · <code>/feedbackfile ${escapeHtml(comment.id)}</code>`
+    : "";
+  return [
+    `${prefix}<b>${escapeHtml(author)}</b> · ${codeValue(shortTime(comment.created_at), "время неизвестно", 24)}`,
+    comment.message ? `💬 ${htmlValue(comment.message, "пусто", 700)}` : "",
+    attachment,
+  ].filter(Boolean).join("\n");
+}
+
+function formatFeedbackComments(comments) {
+  if (!comments?.length)
+    return "";
+  return [
+    "<b>Дополнения:</b>",
+    ...comments.map((comment, index) => formatFeedbackComment(comment, index + 1)),
+  ].join("\n\n");
+}
+
+async function maybeNotifyFeedbackComment(env, row, comment) {
+  if (!row || !comment || !(await feedbackTelegramNotificationsEnabled(env)))
+    return;
+
+  const caption = [
+    panelTitle("💬", "Новое дополнение к обращению PEAK-MX"),
+    "",
+    formatFeedbackTicket(row, null, true),
+    "",
+    formatFeedbackComment(comment),
+  ].join("\n");
+
+  if (comment.attachment_base64) {
+    const bytes = base64ToBytes(comment.attachment_base64);
+    const body = await sendTelegramDocumentBytes(
+      env,
+      env.TELEGRAM_CHAT_ID,
+      bytes,
+      comment.attachment_name || "peak-mx-feedback.jpg",
+      comment.attachment_type || "image/jpeg",
+      caption,
+      { reply_markup: feedbackTicketKeyboard(row.ticket_code, [comment]) }
+    );
+    const fileId = telegramFileIdFromResult(body);
+    const messageId = telegramMessageIdFromResult(body);
+    if (fileId) {
+      await feedbackDb(env).prepare(
+        `UPDATE feedback_comments
+          SET telegram_file_id = ?, telegram_message_id = ?, attachment_base64 = NULL
+          WHERE id = ?`
+      ).bind(fileId, messageId, comment.id).run();
+    }
+    return;
+  }
+
+  await sendTelegramMessage(env, env.TELEGRAM_CHAT_ID, caption, { reply_markup: feedbackTicketKeyboard(row.ticket_code, [comment]) });
+}
+
+async function maybeNotifyFeedback(env, row) {
+  if (!row || !(await feedbackTelegramNotificationsEnabled(env)))
+    return;
+
+  await sendTelegramMessage(env, env.TELEGRAM_CHAT_ID, [
+    panelTitle("📨", "Новое обращение PEAK-MX"),
+    "",
+    formatFeedbackTicket(row, null, true),
+  ].join("\n"), { reply_markup: feedbackTicketKeyboard(row.ticket_code) });
+}
+
+async function maybeNotifyFeedbackUserClosed(env, row) {
+  if (!row || !(await feedbackTelegramNotificationsEnabled(env)))
+    return;
+
+  await sendTelegramMessage(env, env.TELEGRAM_CHAT_ID, [
+    panelTitle("✅", "Пользователь закрыл обращение PEAK-MX"),
+    "",
+    formatFeedbackTicket(row, null, true),
+  ].join("\n"), { reply_markup: feedbackTicketKeyboard(row.ticket_code) });
+}
+
+async function handleFeedbackPost(request, env, ctx) {
+  const { raw, data } = await readJson(request);
+  if (!mustGetToken(request, env, data?.t))
+    return json({ ok: false, error: "forbidden" }, 403);
+
+  const installId = clipText(data?.id, 96);
+  const message = clipText(data?.message, 3000);
+  if (!installId)
+    return json({ ok: false, error: "missing_install_id" }, 400);
+  if (!message)
+    return json({ ok: false, error: "missing_message" }, 400);
+
+  const meta = getCfMeta(request);
+  const type = normalizeFeedbackType(data?.type);
+  const ticketCode = feedbackTicketCode();
+  const patch = {
+    modVersion: data?.mod || data?.modVersion || null,
+    lang: data?.lang || null,
+    nick: data?.nick || null,
+    steamId: readSteamId(data),
+    os: data?.os || null,
+    gameVersion: data?.gameVer || data?.game_version || data?.gameVersion || null,
+    screen: data?.screen || null,
+  };
+
+  try {
+    await ensureInstall(env, installId, request, patch);
+  } catch (error) {
+    console.log("[feedback] ensureInstall skipped:", error instanceof Error ? error.message : String(error));
+  }
+
+  await feedbackDb(env).prepare(
+    `INSERT INTO feedback_messages (
+        ticket_code, type, status, install_id, steam_id, nick, contact, title, message,
+        mod_version, game_version, lang, os, screen, ip, country, region, city, colo, asn, as_org,
+        user_agent, accept_language, payload_json
+      ) VALUES (?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    ticketCode,
+    type,
+    installId,
+    clipText(readSteamId(data), 64),
+    clipText(data?.nick, 160),
+    clipText(data?.contact, 160),
+    clipText(data?.title, 120),
+    message,
+    clipText(patch.modVersion, 80),
+    clipText(patch.gameVersion, 80),
+    clipText(patch.lang, 32),
+    clipText(patch.os, 256),
+    clipText(patch.screen, 80),
+    meta.ip,
+    meta.country,
+    meta.region,
+    meta.city,
+    meta.colo,
+    meta.asn,
+    meta.asOrganization,
+    clipText(meta.userAgent, 512),
+    clipText(meta.acceptLanguage, 160),
+    jsonForDb(data)
+  ).run();
+
+  try {
+    await bumpCounter(env, "feedback");
+  } catch (error) {
+    console.log("[feedback] counter skipped:", error instanceof Error ? error.message : String(error));
+  }
+
+  const row = await getFeedbackByCode(env, ticketCode);
+  ctx?.waitUntil?.(maybeNotifyFeedback(env, row));
+
+  return json({
+    ok: true,
+    ticketCode,
+    status: "new",
+    createdAt: row?.created_at || new Date().toISOString(),
+  });
+}
+
+async function handleFeedbackCommentPost(request, env, ctx) {
+  const { data } = await readJson(request);
+  if (!mustGetToken(request, env, data?.t))
+    return json({ ok: false, error: "forbidden" }, 403);
+
+  const installId = clipText(data?.id, 96);
+  const ticketCode = clipText(data?.ticketCode || data?.ticket_code || data?.code, 32);
+  const message = clipText(data?.message, 3000);
+  let attachment = null;
+  try {
+    attachment = readFeedbackAttachment(data, env);
+  } catch (error) {
+    return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 400);
+  }
+
+  if (!installId)
+    return json({ ok: false, error: "missing_install_id" }, 400);
+  if (!ticketCode)
+    return json({ ok: false, error: "missing_ticket_code" }, 400);
+  if (!message && !attachment)
+    return json({ ok: false, error: "missing_message_or_attachment" }, 400);
+
+  const row = await feedbackDb(env).prepare(
+    `SELECT id, ticket_code, install_id
+      FROM feedback_messages
+      WHERE UPPER(ticket_code) = UPPER(?) AND install_id = ?
+      LIMIT 1`
+  ).bind(ticketCode, installId).first();
+  if (!row)
+    return json({ ok: false, error: "ticket_not_found" }, 404);
+
+  const insertResult = await feedbackDb(env).prepare(
+    `INSERT INTO feedback_comments (
+        ticket_code, install_id, author, message, attachment_name, attachment_type,
+        attachment_size, attachment_base64
+      ) VALUES (?, ?, 'user', ?, ?, ?, ?, ?)`
+  ).bind(
+    row.ticket_code,
+    installId,
+    message,
+    attachment?.name || null,
+    attachment?.type || null,
+    attachment?.size || null,
+    attachment?.base64 || null
+  ).run();
+
+  await feedbackDb(env).prepare(
+    `UPDATE feedback_messages
+      SET updated_at = CURRENT_TIMESTAMP,
+          status = CASE WHEN status = 'answered' THEN 'new' ELSE status END
+      WHERE id = ?`
+  ).bind(row.id).run();
+
+  const commentId = insertResult?.meta?.last_row_id || insertResult?.meta?.last_row_id === 0
+    ? insertResult.meta.last_row_id
+    : null;
+  const comment = commentId
+    ? await getFeedbackCommentById(env, commentId)
+    : (await getFeedbackComments(env, row.ticket_code, 30)).slice(-1)[0];
+  const updatedRow = await getFeedbackByCode(env, row.ticket_code);
+  ctx?.waitUntil?.(maybeNotifyFeedbackComment(env, updatedRow, comment));
+
+  return json({
+    ok: true,
+    ticketCode: row.ticket_code,
+    commentId: comment?.id || null,
+    attachment: attachment ? {
+      name: attachment.name,
+      type: attachment.type,
+      size: attachment.size,
+    } : null,
+    status: updatedRow?.status || "new",
+    updatedAt: updatedRow?.updated_at || new Date().toISOString(),
+  });
+}
+
+async function handleFeedbackClosePost(request, env, ctx) {
+  const { data } = await readJson(request);
+  if (!mustGetToken(request, env, data?.t))
+    return json({ ok: false, error: "forbidden" }, 403);
+
+  const installId = clipText(data?.id, 96);
+  const ticketCode = clipText(data?.ticketCode || data?.ticket_code || data?.code, 32);
+  if (!installId)
+    return json({ ok: false, error: "missing_install_id" }, 400);
+  if (!ticketCode)
+    return json({ ok: false, error: "missing_ticket_code" }, 400);
+
+  const row = await feedbackDb(env).prepare(
+    `SELECT id, ticket_code, install_id, status
+      FROM feedback_messages
+      WHERE UPPER(ticket_code) = UPPER(?) AND install_id = ?
+      LIMIT 1`
+  ).bind(ticketCode, installId).first();
+  if (!row)
+    return json({ ok: false, error: "ticket_not_found" }, 404);
+
+  await feedbackDb(env).prepare(
+    `UPDATE feedback_messages
+      SET status = 'closed',
+          updated_at = CURRENT_TIMESTAMP,
+          closed_at = COALESCE(closed_at, CURRENT_TIMESTAMP)
+      WHERE id = ?`
+  ).bind(row.id).run();
+
+  const updatedRow = await getFeedbackByCode(env, row.ticket_code);
+  ctx?.waitUntil?.(maybeNotifyFeedbackUserClosed(env, updatedRow));
+
+  return json({
+    ok: true,
+    ticketCode: row.ticket_code,
+    status: updatedRow?.status || "closed",
+    updatedAt: updatedRow?.updated_at || new Date().toISOString(),
+    closedAt: updatedRow?.closed_at || new Date().toISOString(),
+  });
+}
+
+async function handleFeedbackReplies(request, env) {
+  const url = new URL(request.url);
+  if (!mustGetToken(request, env))
+    return json({ ok: false, error: "forbidden" }, 403);
+
+  const installId = clipText(url.searchParams.get("id"), 96);
+  if (!installId)
+    return json({ ok: false, error: "missing_install_id" }, 400);
+
+  const limit = Math.max(1, Math.min(20, Number(url.searchParams.get("limit") || 10)));
+  const rows = await feedbackDb(env).prepare(
+    `SELECT f.ticket_code, f.type, f.status, f.title, f.message, f.admin_reply, f.created_at, f.updated_at, f.replied_at, f.closed_at,
+        (SELECT COUNT(*) FROM feedback_comments c WHERE UPPER(c.ticket_code) = UPPER(f.ticket_code)) AS comments_count,
+        (SELECT MAX(c.created_at) FROM feedback_comments c WHERE UPPER(c.ticket_code) = UPPER(f.ticket_code)) AS latest_comment_at
+      FROM feedback_messages f
+      WHERE f.install_id = ?
+      ORDER BY updated_at DESC
+      LIMIT ?`
+  ).bind(installId, limit).all();
+
+  return json({
+    ok: true,
+    tickets: (rows?.results || []).map(feedbackPublicRow),
+    updated: new Date().toISOString(),
   });
 }
 
@@ -2213,42 +2933,47 @@ function botKeyboard() {
         { text: "🧑 Клиенты", callback_data: "/last 10" },
       ],
       [
-        { text: "🔥 Топ действий", callback_data: "/top" },
+        { text: "💸 Донаты", callback_data: "/donations 10" },
+        { text: "📬 Обращения", callback_data: "/feedback new 10" },
+      ],
+      [
         { text: "🌍 Страны", callback_data: "/countries" },
-      ],
-      [
         { text: "🌐 Языки", callback_data: "/langs" },
+      ],
+      [
         { text: "🏷️ Версии", callback_data: "/versions" },
-      ],
-      [
         { text: "🕘 Последнее", callback_data: "/recent" },
+      ],
+      [
         { text: "💥 Ошибки", callback_data: "/errors 10" },
-      ],
-      [
         { text: "🧯 Группы крашей", callback_data: "/crashgroups 10" },
+      ],
+      [
         { text: "📅 Сегодня", callback_data: "/today" },
-      ],
-      [
         { text: "📤 CSV", callback_data: "/export" },
+      ],
+      [
         { text: "📦 Объекты", callback_data: "/objects 10" },
-      ],
-      [
         { text: "🛣 Пути", callback_data: "/paths" },
+      ],
+      [
         { text: "🧩 Типы", callback_data: "/types" },
-      ],
-      [
         { text: "🌐 IP/Colo", callback_data: "/network" },
+      ],
+      [
         { text: "📆 Дни", callback_data: "/days" },
-      ],
-      [
         { text: "💻 Системы", callback_data: "/systems" },
+      ],
+      [
         { text: "🧬 Моды", callback_data: "/mods" },
-      ],
-      [
         { text: "🔔 Уведомления", callback_data: "/notify" },
-        { text: "💚 Статус", callback_data: "/health" },
       ],
       [
+        { text: "💸 Донат-уведомления", callback_data: "/donatenotify" },
+        { text: "📬 Обращения-увед.", callback_data: "/feedbacknotify" },
+      ],
+      [
+        { text: "💚 Статус", callback_data: "/health" },
         { text: "❔ Помощь", callback_data: "/help" },
       ],
     ],
@@ -2256,21 +2981,13 @@ function botKeyboard() {
 }
 
 async function botStats(env) {
-  const [installs, online, active24h, active30d, launches, objects, top, countries, recent, latestInstalls, crashes, versions, langs, today] = await Promise.all([
+  const [installs, online, active24h, active30d, launches, objects, countries, recent, latestInstalls, crashes, versions, langs, today] = await Promise.all([
     env.DB.prepare("SELECT COUNT(*) AS count FROM installs").first(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM installs WHERE last_seen_at >= datetime('now', '-5 minutes')").first(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM installs WHERE last_seen_at >= datetime('now', '-1 day')").first(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM installs WHERE last_seen_at >= datetime('now', '-30 days')").first(),
     env.DB.prepare("SELECT COALESCE(SUM(value), 0) AS count FROM daily_counters WHERE metric = 'ping'").first(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM objects").first(),
-    env.DB.prepare(
-      `SELECT metric, SUM(value) AS count
-        FROM daily_counters
-        WHERE metric LIKE 'event:%'
-        GROUP BY metric
-        ORDER BY count DESC
-        LIMIT 10`
-    ).all(),
     env.DB.prepare(
       `SELECT COALESCE(last_country, '??') AS cc, COUNT(*) AS count
         FROM installs
@@ -2315,7 +3032,7 @@ async function botStats(env) {
     env.DB.prepare(
       `SELECT metric, value
         FROM daily_counters
-        WHERE day = ?
+        WHERE day = ? AND metric NOT LIKE 'event:%'
         ORDER BY value DESC, metric ASC
         LIMIT 20`
     ).bind(isoDay()).all(),
@@ -2328,7 +3045,7 @@ async function botStats(env) {
     active30d: Number(active30d?.count || 0),
     launches: Number(launches?.count || 0),
     objects: Number(objects?.count || 0),
-    top: top?.results || [],
+    top: [],
     countries: countries?.results || [],
     recent: recent?.results || [],
     latestInstalls: latestInstalls?.results || [],
@@ -2340,9 +3057,6 @@ async function botStats(env) {
 }
 
 function formatBotStats(data) {
-  const topAction = data.top[0]
-    ? `${String(data.top[0].metric || "").replace(/^event:[^:]+:/, "")} (${data.top[0].count})`
-    : "нет";
   const topCountry = data.countries[0]
     ? `${data.countries[0].cc || "??"} (${data.countries[0].count})`
     : "нет";
@@ -2356,7 +3070,6 @@ function formatBotStats(data) {
     `📅 Активны 30д: <b>${escapeHtml(prettyNumber(data.active30d))}</b>`,
     `🚀 Запуски: <b>${escapeHtml(prettyNumber(data.launches))}</b>`,
     `📦 События/объекты: <b>${escapeHtml(prettyNumber(data.objects))}</b>`,
-    `🔥 Топ действие: <code>${escapeHtml(topAction)}</code>`,
     `🌍 Топ страна: <code>${escapeHtml(topCountry)}</code>`,
     `💥 Последние ошибки: <b>${escapeHtml(data.crashes.length)}</b>`,
     "",
@@ -2365,11 +3078,45 @@ function formatBotStats(data) {
 }
 
 function formatTop(data) {
-  const rows = data.top.map((row, index) => {
-    const name = String(row.metric || "").replace(/^event:[^:]+:/, "");
-    return `${index + 1}. <code>${escapeHtml(name)}</code> — <b>${escapeHtml(row.count)}</b>`;
-  });
-  return `${panelTitle("🔥", "Топ действий PEAK-MX")}\n\n${rows.length ? rows.join("\n") : "Данных пока нет."}`;
+  return `${panelTitle("🔥", "Топ действий PEAK-MX")}\n\nПодсчёт использования команд отключен в версии 1.0.14.`;
+}
+
+async function formatDonations(env, limit) {
+  const response = await handleDonations(
+    new Request(`https://peak-mx.local/api/donations?lang=ru&limit=${encodeURIComponent(String(limit))}`),
+    env,
+    null
+  );
+  const data = await response.json();
+  const goal = data?.goal || {};
+  const latest = Array.isArray(data?.latest) ? data.latest : [];
+  const supporters = Array.isArray(data?.supporters) ? data.supporters : [];
+  const notify = await getBotSetting(env, "donation_notify", "off");
+  const percent = goal.percent != null ? ` (${escapeHtml(goal.percent)}%)` : "";
+
+  const lines = [
+    panelTitle("💸", "Донаты PEAK-MX", `${escapeHtml(data.hiddenOlderThanDays || 60)} дней, anonymous отдельно`),
+    "",
+    `Собрано: <b>${escapeHtml(moneyText(goal.raised, goal.currency))}</b> / <b>${escapeHtml(moneyText(goal.target, goal.currency))}</b>${percent}`,
+    `Порог: именные донатеры от <b>${escapeHtml(data.minPublicAmount ?? 100)} RUB</b> суммарно, anonymous — отдельным платежом.`,
+    `Уведомления о донатах: <b>${notify === "on" ? "включены" : "выключены"}</b>.`,
+    "",
+    "<b>Последние:</b>",
+    latest.length ? latest.map((entry, index) => formatDonationLine(entry, index + 1)).join("\n") : "Данных пока нет.",
+    "",
+    "<b>Донатеры:</b>",
+    supporters.length
+      ? supporters.map((entry, index) => {
+        const count = entry.count > 1 ? ` · ${escapeHtml(entry.count)} раз` : "";
+        return `${index + 1}. <b>${htmlValue(entry.name, "Без имени", 80)}</b> — <b>${escapeHtml(moneyText(entry.amount, entry.currency))}</b>${count}`;
+      }).join("\n")
+      : "Данных пока нет.",
+  ];
+
+  if (data.warning)
+    lines.push("", `⚠️ ${htmlValue(data.warning, "warning", 220)}`);
+
+  return lines.join("\n");
 }
 
 function formatCountries(data) {
@@ -2421,22 +3168,31 @@ function formatHelp() {
     "<b>Команды:</b>",
     "<code>/stats</code> — общая статистика",
     "<code>/last [N]</code> — последние установки",
-    "<code>/find &lt;запрос&gt;</code> — поиск по нику/IP/стране/SteamID/GUID",
-    "<code>/info &lt;GUID или ник&gt;</code> — полная карточка клиента",
+    "<code>/find &lt;запрос&gt;</code> — поиск по нику/IP/стране/SteamID/ID",
+    "<code>/info &lt;ID или ник&gt;</code> — полная карточка клиента",
     "<code>/errors [N]</code> — последние краши/ошибки",
     "<code>/crashgroups [N]</code> — группировка крашей по fingerprint/размеру",
     "<code>/notify [on|off]</code> — уведомления о новых событиях",
+    "<code>/donations [N]</code> — сбор, последние донаты и донатеры",
+    "<code>/donatenotify [on|off]</code> — уведомления о новых донатах",
+    "<code>/feedback [new|dev|answered|rejected|closed|all] [N]</code> — предложения и баг-репорты",
+    "<code>/feedbacknotify [on|off]</code> — уведомления о новых обращениях",
+    "<code>/reply &lt;тикет&gt; &lt;текст&gt;</code> — ответить пользователю",
+    "<code>/feedbackfile &lt;ID комментария&gt;</code> — прислать вложение из обращения",
+    "<code>/dev &lt;тикет&gt; [заметка]</code> — отправить в разработку",
+    "<code>/reject &lt;тикет&gt; [причина]</code> — отклонить",
+    "<code>/close &lt;тикет&gt; [заметка]</code> — закрыть",
     "<code>/export</code> — выгрузка клиентов в CSV",
     "<code>/export events</code> — выгрузка событий в CSV",
     "",
     "<b>Дополнительно:</b>",
-    "<code>/top</code> — самые используемые функции",
+    "<code>/top</code> — отключено с версии 1.0.14",
     "<code>/countries</code> — установки по странам",
     "<code>/langs</code> — языки клиентов",
     "<code>/versions</code> — версии мода",
     "<code>/recent</code> — последние сохранённые события",
     "<code>/objects [N]</code> — подробные строки objects",
-    "<code>/clientevents &lt;GUID|ник&gt; [N]</code> — события одного клиента",
+    "<code>/clientevents &lt;ID|ник&gt; [N]</code> — события одного клиента",
     "<code>/types</code> — типы сохранённых данных",
     "<code>/paths</code> — использование endpoint'ов",
     "<code>/network</code> — IP/страны/города/colo",
@@ -2477,6 +3233,31 @@ async function setBotSetting(env, key, value) {
       VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
   ).bind(key, value).run();
+}
+
+async function deleteBotSetting(env, key) {
+  await env.DB.prepare("DELETE FROM bot_settings WHERE key = ?").bind(key).run();
+}
+
+async function getFeedbackSetting(env, key, fallback = null) {
+  try {
+    const row = await feedbackDb(env).prepare("SELECT value FROM bot_settings WHERE key = ?").bind(key).first();
+    return row?.value ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function setFeedbackSetting(env, key, value) {
+  await feedbackDb(env).prepare(
+    `INSERT INTO bot_settings(key, value)
+      VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+  ).bind(key, value).run();
+}
+
+async function deleteFeedbackSetting(env, key) {
+  await feedbackDb(env).prepare("DELETE FROM bot_settings WHERE key = ?").bind(key).run();
 }
 
 async function formatLastInstalls(env, limit) {
@@ -2966,6 +3747,255 @@ async function handleNotifyCommand(env, chatId, parts) {
   return sendTelegramMessage(env, chatId, `🔔 Уведомления: <b>${current === "on" ? "включены" : "выключены"}</b>\n\nИспользуй <code>/notify on</code> или <code>/notify off</code>.`, { reply_markup: botKeyboard() });
 }
 
+async function handleDonationNotifyCommand(env, chatId, parts) {
+  const value = (parts[1] || "").toLowerCase();
+  if (value === "on" || value === "off") {
+    await setBotSetting(env, "donation_notify", value);
+
+    if (value === "on" && !(await getBotSetting(env, "donation_last_seen", ""))) {
+      try {
+        const response = await handleDonations(new Request("https://peak-mx.local/api/donations?lang=ru&limit=1"), env, null);
+        const data = await response.json();
+        if (data?.latest?.[0])
+          await setBotSetting(env, "donation_last_seen", donationKey(data.latest[0]));
+      } catch {
+        // If DonationAlerts is temporarily unavailable, the next successful check will seed safely.
+      }
+    }
+
+    return sendTelegramMessage(env, chatId, `💸 Уведомления о донатах теперь: <b>${value === "on" ? "включены" : "выключены"}</b>.`, { reply_markup: botKeyboard() });
+  }
+
+  const current = await getBotSetting(env, "donation_notify", "off");
+  return sendTelegramMessage(env, chatId, `💸 Уведомления о донатах: <b>${current === "on" ? "включены" : "выключены"}</b>\n\nИспользуй <code>/donatenotify on</code> или <code>/donatenotify off</code>.`, { reply_markup: botKeyboard() });
+}
+
+function parseFeedbackListArgs(parts) {
+  const first = String(parts[1] || "new").toLowerCase();
+  const known = new Set(["new", "answered", "dev", "rejected", "closed", "all"]);
+  const status = known.has(first) ? first : "new";
+  const limitPart = known.has(first) ? parts[2] : parts[1];
+  const limit = Math.max(1, Math.min(30, Number(limitPart || 10) || 10));
+  return { status, limit };
+}
+
+function feedbackListKeyboard(rows, status = "new") {
+  const keyboard = [];
+  for (const row of rows.slice(0, 8)) {
+    const code = row.ticket_code;
+    keyboard.push([
+      { text: `#${code}`, callback_data: `/feedbackinfo ${code}` },
+      { text: "↩️", callback_data: `/feedbackreply ${code}` },
+      { text: "🛠", callback_data: `/dev ${code}` },
+      { text: "✅", callback_data: `/close ${code}` },
+    ]);
+  }
+  keyboard.push([
+    { text: "🆕 Новые", callback_data: "/feedback new 10" },
+    { text: "🛠 В разработке", callback_data: "/feedback dev 10" },
+  ]);
+  keyboard.push([
+    { text: "📦 Все", callback_data: "/feedback all 10" },
+    { text: "🔔 Уведомления", callback_data: "/feedbacknotify" },
+  ]);
+  keyboard.push([{ text: "🏠 Главное меню", callback_data: "/stats" }]);
+  return { inline_keyboard: keyboard };
+}
+
+async function feedbackCounts(env) {
+  const rows = await feedbackDb(env).prepare(
+    `SELECT status, COUNT(*) AS count
+      FROM feedback_messages
+      GROUP BY status`
+  ).all();
+  const counts = {};
+  for (const row of rows?.results || [])
+    counts[row.status] = Number(row.count || 0);
+  return counts;
+}
+
+async function formatFeedbackList(env, status, limit) {
+  const where = status === "all" ? "" : "WHERE f.status = ?";
+  const statement = feedbackDb(env).prepare(
+    `SELECT f.id, f.ticket_code, f.type, f.status, f.install_id, f.steam_id, f.nick, f.contact, f.title, f.message,
+        f.mod_version, f.game_version, f.lang, f.os, f.screen, f.ip, f.country, f.region, f.city, f.colo, f.asn, f.as_org,
+        f.user_agent, f.accept_language, f.admin_reply, f.admin_note, f.created_at, f.updated_at, f.replied_at, f.closed_at,
+        (SELECT COUNT(*) FROM feedback_comments c WHERE UPPER(c.ticket_code) = UPPER(f.ticket_code)) AS comments_count,
+        (SELECT MAX(c.created_at) FROM feedback_comments c WHERE UPPER(c.ticket_code) = UPPER(f.ticket_code)) AS latest_comment_at
+      FROM feedback_messages f
+      ${where}
+      ORDER BY f.updated_at DESC
+      LIMIT ?`
+  );
+  const rows = status === "all"
+    ? await statement.bind(limit).all()
+    : await statement.bind(status, limit).all();
+  const list = rows?.results || [];
+  const counts = await feedbackCounts(env);
+  const notify = await getFeedbackSetting(env, "feedback_notify", "on");
+  const cards = list.map((row, index) => formatFeedbackTicket(row, index + 1, false));
+  const subtitle = [
+    `новые ${counts.new || 0}`,
+    `в разработке ${counts.dev || 0}`,
+    `с ответом ${counts.answered || 0}`,
+    `закрытые ${counts.closed || 0}`,
+  ].join(" · ");
+  const textBody = [
+    panelTitle("📬", "Обращения PEAK-MX", subtitle),
+    "",
+    `Фильтр: <b>${escapeHtml(status === "all" ? "все" : feedbackStatusLabel(status))}</b> · уведомления: <b>${notify === "off" ? "выключены" : "включены"}</b>`,
+    "",
+    cards.length ? cards.join("\n\n") : "Обращений по этому фильтру пока нет.",
+  ].join("\n");
+  return { text: textBody, keyboard: feedbackListKeyboard(list, status) };
+}
+
+async function formatFeedbackInfo(env, code) {
+  const row = await getFeedbackByCode(env, code);
+  if (!row)
+    return {
+      text: `📬 <b>Обращение не найдено:</b> ${codeValue(code, "тикет ?", 32)}`,
+      keyboard: botKeyboard(),
+    };
+  const comments = await getFeedbackComments(env, row.ticket_code, 20);
+  const commentsText = formatFeedbackComments(comments);
+  return {
+    text: [panelTitle("📬", "Обращение PEAK-MX"), "", formatFeedbackTicket(row, null, true), commentsText ? "\n" + commentsText : ""].join("\n"),
+    keyboard: feedbackTicketKeyboard(row.ticket_code, comments),
+  };
+}
+
+async function updateFeedbackStatus(env, code, status, note = "", reply = null) {
+  const normalized = normalizeFeedbackStatus(status);
+  const nowFields = normalized === "closed" || normalized === "rejected"
+    ? ", closed_at = COALESCE(closed_at, CURRENT_TIMESTAMP)"
+    : "";
+  const replyFields = reply != null
+    ? ", admin_reply = ?, replied_at = CURRENT_TIMESTAMP"
+    : "";
+  const params = reply != null
+    ? [normalized, clipText(note, 1000), clipText(reply, 2000), String(code || "").trim()]
+    : [normalized, clipText(note, 1000), String(code || "").trim()];
+
+  await feedbackDb(env).prepare(
+    `UPDATE feedback_messages
+      SET status = ?, admin_note = COALESCE(NULLIF(?, ''), admin_note), updated_at = CURRENT_TIMESTAMP${replyFields}${nowFields}
+      WHERE UPPER(ticket_code) = UPPER(?)`
+  ).bind(...params).run();
+  return getFeedbackByCode(env, code);
+}
+
+async function handleFeedbackNotifyCommand(env, chatId, parts) {
+  const value = (parts[1] || "").toLowerCase();
+  if (value === "on" || value === "off") {
+    await setFeedbackSetting(env, "feedback_notify", value);
+    return sendTelegramMessage(env, chatId, `📬 Уведомления об обращениях теперь: <b>${value === "on" ? "включены" : "выключены"}</b>.`, { reply_markup: botKeyboard() });
+  }
+
+  const current = await getFeedbackSetting(env, "feedback_notify", "on");
+  return sendTelegramMessage(env, chatId, `📬 Уведомления об обращениях: <b>${current === "off" ? "выключены" : "включены"}</b>\n\nИспользуй <code>/feedbacknotify on</code> или <code>/feedbacknotify off</code>.`, { reply_markup: botKeyboard() });
+}
+
+async function handleFeedbackReplyPromptCommand(env, chatId, parts) {
+  const code = parts[1] || "";
+  const row = await getFeedbackByCode(env, code);
+  if (!row)
+    return sendTelegramMessage(env, chatId, `📬 Тикет не найден: ${codeValue(code, "?", 32)}`, { reply_markup: botKeyboard() });
+
+  await setFeedbackSetting(env, `feedback_reply_wait_${chatId}`, row.ticket_code);
+  return sendTelegramMessage(
+    env,
+    chatId,
+    `↩️ Напиши следующим сообщением ответ для ${codeValue(row.ticket_code, "тикет ?", 32)}.\n\nОтмена: <code>/cancel</code>`,
+    { reply_markup: feedbackTicketKeyboard(row.ticket_code) }
+  );
+}
+
+async function handleFeedbackReplyCommand(env, chatId, parts) {
+  const code = parts[1] || "";
+  const reply = parts.slice(2).join(" ").trim();
+  if (!code || !reply)
+    return sendTelegramMessage(env, chatId, "Использование: <code>/reply MX260816-ABC123 текст ответа</code>", { reply_markup: botKeyboard() });
+
+  await deleteFeedbackSetting(env, `feedback_reply_wait_${chatId}`);
+  const row = await updateFeedbackStatus(env, code, "answered", "", reply);
+  if (!row)
+    return sendTelegramMessage(env, chatId, `📬 Тикет не найден: ${codeValue(code, "?", 32)}`, { reply_markup: botKeyboard() });
+  return sendTelegramMessage(
+    env,
+    chatId,
+    [panelTitle("↩️", "Ответ сохранён"), "", formatFeedbackTicket(row, null, true)].join("\n"),
+    { reply_markup: feedbackTicketKeyboard(row.ticket_code) }
+  );
+}
+
+async function handleFeedbackFileCommand(env, chatId, parts) {
+  const id = Number(parts[1] || 0);
+  if (!Number.isFinite(id) || id <= 0)
+    return sendTelegramMessage(env, chatId, "Использование: <code>/feedbackfile 123</code>", { reply_markup: botKeyboard() });
+
+  const comment = await getFeedbackCommentById(env, id);
+  if (!comment)
+    return sendTelegramMessage(env, chatId, `📎 Файл не найден: <code>${escapeHtml(id)}</code>`, { reply_markup: botKeyboard() });
+  if (!comment.telegram_file_id && !comment.attachment_base64)
+    return sendTelegramMessage(env, chatId, `📎 У комментария <code>${escapeHtml(id)}</code> нет сохраненного файла.`, { reply_markup: botKeyboard() });
+
+  const row = await getFeedbackByCode(env, comment.ticket_code);
+  const caption = [
+    panelTitle("📎", "Вложение PEAK-MX"),
+    "",
+    row ? formatFeedbackTicket(row, null, false) : `Тикет: ${codeValue(comment.ticket_code, "?", 32)}`,
+    "",
+    formatFeedbackComment(comment),
+  ].join("\n");
+
+  if (comment.telegram_file_id) {
+    return sendTelegramDocumentFileId(env, chatId, comment.telegram_file_id, caption, {
+      reply_markup: feedbackTicketKeyboard(comment.ticket_code, [comment]),
+    });
+  }
+
+  const bytes = base64ToBytes(comment.attachment_base64);
+  const body = await sendTelegramDocumentBytes(
+    env,
+    chatId,
+    bytes,
+    comment.attachment_name || "peak-mx-feedback.jpg",
+    comment.attachment_type || "image/jpeg",
+    caption,
+    { reply_markup: feedbackTicketKeyboard(comment.ticket_code, [comment]) }
+  );
+  const fileId = telegramFileIdFromResult(body);
+  const messageId = telegramMessageIdFromResult(body);
+  if (fileId) {
+    await feedbackDb(env).prepare(
+      `UPDATE feedback_comments
+        SET telegram_file_id = ?, telegram_message_id = ?, attachment_base64 = NULL
+        WHERE id = ?`
+    ).bind(fileId, messageId, comment.id).run();
+  }
+  return body;
+}
+
+async function handleFeedbackStatusCommand(env, chatId, parts, status) {
+  const code = parts[1] || "";
+  const note = parts.slice(2).join(" ").trim();
+  if (!code)
+    return sendTelegramMessage(env, chatId, `Использование: <code>/${status} MX260816-ABC123 [заметка]</code>`, { reply_markup: botKeyboard() });
+
+  const publicReply = (status === "rejected" || status === "closed") && note ? note : null;
+  const row = await updateFeedbackStatus(env, code, status, note, publicReply);
+  if (!row)
+    return sendTelegramMessage(env, chatId, `📬 Тикет не найден: ${codeValue(code, "?", 32)}`, { reply_markup: botKeyboard() });
+
+  return sendTelegramMessage(
+    env,
+    chatId,
+    [panelTitle("📬", `Статус: ${feedbackStatusLabel(row.status)}`), "", formatFeedbackTicket(row, null, true)].join("\n"),
+    { reply_markup: feedbackTicketKeyboard(row.ticket_code) }
+  );
+}
+
 async function handleExportCommand(env, chatId, mode = "") {
   mode = String(mode || "").toLowerCase();
   const exportEvents = mode === "events" || mode === "objects";
@@ -3013,8 +4043,44 @@ async function handleBotCommand(env, chatId, command, options = {}) {
     return replyBot(env, chatId, formatHelp(), replyOptions);
   if (normalized === "/notify")
     return handleNotifyCommand(env, chatId, parts);
+  if (normalized === "/donatenotify" || normalized === "/donationnotify")
+    return handleDonationNotifyCommand(env, chatId, parts);
+  if (normalized === "/donations" || normalized === "/donates")
+    return replyBot(env, chatId, await formatDonations(env, parseLimit(parts, 10, 30)), replyOptions);
+  if (normalized === "/feedbacknotify")
+    return handleFeedbackNotifyCommand(env, chatId, parts);
+  if (normalized === "/feedback")
+  {
+    const { status, limit } = parseFeedbackListArgs(parts);
+    const result = await formatFeedbackList(env, status, limit);
+    return replyBot(env, chatId, result.text, { ...replyOptions, reply_markup: result.keyboard });
+  }
+  if (normalized === "/feedbackinfo")
+  {
+    const result = await formatFeedbackInfo(env, parts[1] || "");
+    return replyBot(env, chatId, result.text, { ...replyOptions, reply_markup: result.keyboard });
+  }
+  if (normalized === "/feedbackreply")
+    return handleFeedbackReplyPromptCommand(env, chatId, parts);
+  if (normalized === "/reply")
+    return handleFeedbackReplyCommand(env, chatId, parts);
+  if (normalized === "/feedbackfile")
+    return handleFeedbackFileCommand(env, chatId, parts);
+  if (normalized === "/dev")
+    return handleFeedbackStatusCommand(env, chatId, parts, "dev");
+  if (normalized === "/reject")
+    return handleFeedbackStatusCommand(env, chatId, parts, "rejected");
+  if (normalized === "/close")
+    return handleFeedbackStatusCommand(env, chatId, parts, "closed");
+  if (normalized === "/cancel")
+  {
+    await deleteFeedbackSetting(env, `feedback_reply_wait_${chatId}`);
+    return replyBot(env, chatId, "Отменено.", replyOptions);
+  }
   if (normalized === "/export")
     return handleExportCommand(env, chatId, parts[1] || "");
+  if (normalized === "/top")
+    return replyBot(env, chatId, formatTop({ top: [] }), replyOptions);
 
   const data = await botStats(env);
 
@@ -3023,15 +4089,13 @@ async function handleBotCommand(env, chatId, command, options = {}) {
   if (normalized === "/installs" || normalized === "/last")
     return replyBot(env, chatId, await formatLastInstalls(env, parseLimit(parts, 10, 50)), replyOptions);
   if (normalized === "/find")
-    return replyBot(env, chatId, parts.slice(1).join(" ").trim() ? await formatFind(env, parts.slice(1).join(" ").trim()) : "🔎 <b>Поиск</b>\n\nИспользуй <code>/find запрос</code>\nИщет по нику, IP, стране, городу, SteamID, GUID, версии и языку.", replyOptions);
+    return replyBot(env, chatId, parts.slice(1).join(" ").trim() ? await formatFind(env, parts.slice(1).join(" ").trim()) : "🔎 <b>Поиск</b>\n\nИспользуй <code>/find запрос</code>\nИщет по нику, IP, стране, городу, SteamID, ID, версии и языку.", replyOptions);
   if (normalized === "/info")
-    return replyBot(env, chatId, parts.slice(1).join(" ").trim() ? await formatInfo(env, parts.slice(1).join(" ").trim()) : "Использование: <code>/info GUID_или_ник</code>", replyOptions);
+    return replyBot(env, chatId, parts.slice(1).join(" ").trim() ? await formatInfo(env, parts.slice(1).join(" ").trim()) : "Использование: <code>/info ID_или_ник</code>", replyOptions);
   if (normalized === "/errors" || normalized === "/crashes")
     return replyBot(env, chatId, await formatErrors(env, parseLimit(parts, 10, 50)), replyOptions);
   if (normalized === "/crashgroups")
     return replyBot(env, chatId, await formatCrashGroups(env, parseLimit(parts, 10, 30)), replyOptions);
-  if (normalized === "/top")
-    return replyBot(env, chatId, formatTop(data), replyOptions);
   if (normalized === "/countries")
     return replyBot(env, chatId, formatCountries(data), replyOptions);
   if (normalized === "/langs")
@@ -3043,7 +4107,7 @@ async function handleBotCommand(env, chatId, command, options = {}) {
   if (normalized === "/objects")
     return replyBot(env, chatId, await formatObjects(env, parseLimit(parts, 10, 30)), replyOptions);
   if (normalized === "/clientevents")
-    return replyBot(env, chatId, parts.slice(1).join(" ").trim() ? await formatClientEvents(env, parts[1], parseLimit(["", parts[2]], 10, 30)) : "Использование: <code>/clientevents GUID_или_ник [N]</code>", replyOptions);
+    return replyBot(env, chatId, parts.slice(1).join(" ").trim() ? await formatClientEvents(env, parts[1], parseLimit(["", parts[2]], 10, 30)) : "Использование: <code>/clientevents ID_или_ник [N]</code>", replyOptions);
   if (normalized === "/types")
     return replyBot(env, chatId, await formatTypes(env), replyOptions);
   if (normalized === "/paths")
@@ -3094,7 +4158,13 @@ async function handleTelegramWebhook(request, env, ctx) {
     }));
   }
 
-  const command = update.callback_query?.data || update.message?.text || update.edited_message?.text || "/stats";
+  let command = update.callback_query?.data || update.message?.text || update.edited_message?.text || "/stats";
+  const messageText = update.message?.text || "";
+  if (!update.callback_query && messageText && !messageText.trim().startsWith("/")) {
+    const pendingTicket = await getFeedbackSetting(env, `feedback_reply_wait_${chatId}`, "");
+    if (pendingTicket)
+      command = `/reply ${pendingTicket} ${messageText}`;
+  }
   const options = update.callback_query?.message?.message_id
     ? { editMessageId: update.callback_query.message.message_id }
     : {};
@@ -3148,7 +4218,15 @@ export default {
       else if (request.method === "GET" && path === "/api/summary")
         response = await handlePublicSummary(request, env);
       else if (request.method === "GET" && path === "/api/donations")
-        response = await handleDonations(request, env);
+        response = await handleDonations(request, env, ctx);
+      else if (request.method === "POST" && path === "/api/feedback")
+        response = await handleFeedbackPost(request, env, ctx);
+      else if (request.method === "POST" && path === "/api/feedback/comment")
+        response = await handleFeedbackCommentPost(request, env, ctx);
+      else if (request.method === "POST" && path === "/api/feedback/close")
+        response = await handleFeedbackClosePost(request, env, ctx);
+      else if (request.method === "GET" && path === "/api/feedback/replies")
+        response = await handleFeedbackReplies(request, env);
       else if (request.method === "POST" && path === "/api/telegram/webhook")
         response = await handleTelegramWebhook(request, env, ctx);
       else if (request.method === "POST" && path === "/api/telegram/setup")

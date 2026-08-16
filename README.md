@@ -18,26 +18,34 @@ It includes 140+ in-game functions: movement tweaks, stamina and status controls
 
 The menu hotkey can be changed inside the About tab. The menu can also be closed with **Esc** or the close button in the header.
 
-## What's New in 1.0.13
+## What's New in 1.0.14
 
-- Updated PEAK-MX for the latest PEAK update.
-- Restored broken menu tabs and multiplayer player selection.
-- Fixed several inventory, prank, player, and world tools.
-- Updated item loading for new and changed game items.
-- Added support for new achievements, badges, and medal cosmetics.
-- Added a small in-game thank-you panel for supporters.
+- Added petrification tools and a petrify prank.
+- Added arrow prank tools.
+- Added global voice hearing for your client.
+- Added local nickname changing and clone appearance tools.
+- Added random outfit/color tools, including rapid shuffle.
+- Added configurable menu accent colors.
+- Added mod update checking from GitHub Releases.
+- Added in-game suggestions and bug reports with replies, follow-up messages, image attachments, and user-side ticket closing.
+- Improved the image picker for feedback attachments.
+- Improved supporter display and personal ID handling.
+- Updated compatibility work for the latest PEAK changes.
 
 ## Features
 
-- 140+ in-game functions.
+- 150+ in-game functions.
 - Movement speed, jump height, unlimited jumps, fly mode, noclip, long interaction, and cinematic free camera.
 - Stamina, extra stamina, lantern fuel, item uses, status effects, injuries, hunger, cold, poison, curse, drowsiness, heat, and weight controls.
 - Inventory editing, backpack support, item spawning, slot clearing, item charging, gold fill, web fill, and random item fill.
 - Player tools: teleport, pull, spawn return, revive, kill, freeze, heal, mute, kick, session ban, and inventory lock.
+- Prank tools for petrification, arrows, inventory surprises, and other lobby fun.
+- Local nickname, clone appearance, and random outfit/color tools.
 - Host admin protection with warning-only mode, movement checks, session ban list, and action log.
 - Larger-lobby controls: configurable player limit, host-only airport kiosk start, join/leave logging, voice routing fix, and player UI fixes.
 - World tools: run timer, time-of-day presets, game speed, ping hand size, nearby containers, and finish controls.
 - Achievements and cosmetics unlock/reset tools with badge icons and cosmetic previews.
+- Update checking, in-game feedback reports, supporter thanks, personal ID copy, and custom accent colors in the About tab.
 - Interface supports 14 languages.
 
 ## Important

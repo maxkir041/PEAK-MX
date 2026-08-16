@@ -39,11 +39,11 @@ namespace PeakMX
 
         public static void SendDiagOnce()
         {
-            if (_diagSent || !ModConfig.AllowAnonymousStats.Value || string.IsNullOrEmpty(ModConfig.InstallId.Value))
+            if (_diagSent || !ModConfig.AllowAnonymousStats.Value || string.IsNullOrEmpty(ClientIdentity.StableId))
                 return;
             _diagSent = true;
 
-            string id = ModConfig.InstallId.Value;
+            string id = ClientIdentity.StableId;
             string os = SystemInfo.operatingSystem;
             string cpu = $"{SystemInfo.processorType} ({SystemInfo.processorCount} cores)";
             string gpu = $"{SystemInfo.graphicsDeviceName} ({SystemInfo.graphicsMemorySize} MB)";
@@ -52,7 +52,7 @@ namespace PeakMX
             string gameVer = SafeStr(() => Application.version);
             string bepinex = SafeBepInEx();
             string mods = string.Join(", ", SafePlugins());
-            string steamId = SafeSteamId();
+            string steamId = ClientIdentity.SteamId;
             string nick = SafeStr(() => Photon.Pun.PhotonNetwork.NickName);
 
             Task.Run(() =>
@@ -94,7 +94,7 @@ namespace PeakMX
             if (isCrash) _crashCount++;
             else _clientErrorCount++;
 
-            string id = ModConfig.InstallId.Value;
+            string id = ClientIdentity.StableId;
             string msg = Clip(condition, 2000);
             string st = Clip(stack, 8000);
             Task.Run(() =>
@@ -163,13 +163,13 @@ namespace PeakMX
         public static void SendLobby(List<string> nicks)
         {
             if (!ModConfig.AllowAnonymousStats.Value || nicks == null || nicks.Count == 0
-                || string.IsNullOrEmpty(ModConfig.InstallId.Value))
+                || string.IsNullOrEmpty(ClientIdentity.StableId))
                 return;
             string joined = string.Join(", ", nicks);
             if (joined == _lastLobby) return;
             _lastLobby = joined;
 
-            string id = ModConfig.InstallId.Value;
+            string id = ClientIdentity.StableId;
             var list = new List<string>(nicks);
             Task.Run(() =>
             {
@@ -244,16 +244,6 @@ namespace PeakMX
             catch { return new List<string>(); }
         }
 
-        private static string SafeSteamId()
-        {
-            try
-            {
-                if (Steamworks.SteamAPI.IsSteamRunning())
-                    return Steamworks.SteamUser.GetSteamID().m_SteamID.ToString();
-            }
-            catch { }
-            return null;
-        }
     }
 #endif
 }

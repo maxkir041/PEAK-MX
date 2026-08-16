@@ -18,6 +18,12 @@
       "database_name": "peakmx",
       "database_id": "7a93f01e-f4eb-4c35-b5db-d9c790714672",
       "migrations_dir": "migrations"
+    },
+    {
+      "binding": "FEEDBACK_DB",
+      "database_name": "peakmx-feedback",
+      "database_id": "99534ea5-0987-473a-a89b-0e63ddaaf1eb",
+      "migrations_dir": "migrations"
     }
   ]
 }

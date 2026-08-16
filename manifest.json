@@ -1,6 +1,6 @@
 {
   "name": "PEAK_MX",
-  "version_number": "1.0.13",
+  "version_number": "1.0.14",
   "website_url": "https://github.com/maxkir041/PEAK-MX",
   "description": "PEAK-MX - utility and admin menu for PEAK with movement, cheats, inventory, unlocks, host tools, and larger-lobby controls.",
   "dependencies": [

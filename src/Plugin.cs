@@ -11,7 +11,7 @@ namespace PeakMX
     {
         public const string Guid = "com.maxkir041.peakmx";
         public const string Name = "PEAK-MX";
-        public const string Version = "1.0.13";
+        public const string Version = "1.0.14";
 
         internal static ManualLogSource Log;
         private static bool _menuOpen;
@@ -36,12 +36,14 @@ namespace PeakMX
 #endif
 
             ModConfig.Init(Config);
+            ClientIdentity.Init();
             Localization.Current = (Lang)ModConfig.Language.Value;
 #if !THUNDERSTORE_NO_ANALYTICS
             Stats.Init();
             Diagnostics.HookCrashes();
 #endif
             DonationSupport.Init();
+            UpdateChecker.Init();
 
             _harmony = new Harmony(Guid);
             _harmony.PatchAll(typeof(Plugin).Assembly);
@@ -83,9 +85,6 @@ namespace PeakMX
                 _diagSent = true;
                 Diagnostics.SendDiagOnce();
             }
-
-            // Track cheat usage/duration.
-            CheatTracker.Tick();
 
             // Lobby members every few seconds while in a room.
             if (Time.realtimeSinceStartup >= _lobbyNext)

@@ -22,7 +22,7 @@ namespace PeakMX
         private static float[] _lockedStatuses;
         private static bool _godApplied, _speedApplied, _jumpApplied;
         private static bool _climbApplied, _vineApplied, _ropeApplied;
-        private static float _itemTimer, _timeOverrideTimer, _adminTimer;
+        private static float _itemTimer, _timeOverrideTimer, _adminTimer, _cosmeticShuffleTimer;
         private static float _baseInteractionDistance = -1f, _baseInteractionArea = -1f;
         private static bool _timeScaleApplied;
         private static readonly Dictionary<PointPing, float> PingBaseFrustumSizes = new Dictionary<PointPing, float>();
@@ -42,6 +42,7 @@ namespace PeakMX
             try { ApplyWorldOverrides(); } catch (Exception e) { Warn("world", e); }
             try { ApplyUtilityModifiers(c); } catch (Exception e) { Warn("utility", e); }
             try { ApplyAdminProtection(); } catch (Exception e) { Warn("admin", e); }
+            try { ApplyCosmeticShuffle(); } catch (Exception e) { Warn("cosmetics", e); }
             try { GameApi.ApplyFrozenPlayers(Time.deltaTime); } catch (Exception e) { Warn("freeze", e); }
             try { GameApi.ApplyInventoryLocks(Time.deltaTime); } catch (Exception e) { Warn("inventory-lock", e); }
         }
@@ -85,6 +86,23 @@ namespace PeakMX
             if (_adminTimer < 2f) return;
             _adminTimer = 0f;
             GameApi.EnforceAdminProtection();
+        }
+
+        private static void ApplyCosmeticShuffle()
+        {
+            if (!ModConfig.RapidRandomOutfitColor)
+            {
+                _cosmeticShuffleTimer = 0f;
+                return;
+            }
+
+            _cosmeticShuffleTimer += Time.unscaledDeltaTime;
+            float interval = Mathf.Clamp(ModConfig.RapidRandomOutfitColorInterval, 0.08f, 2f);
+            if (_cosmeticShuffleTimer < interval)
+                return;
+
+            _cosmeticShuffleTimer = 0f;
+            GameApi.RandomizeOutfitAndColor(false);
         }
 
         private static void ApplyMovement(Character c)
@@ -187,6 +205,7 @@ namespace PeakMX
                 {
                     for (int i = 0; i < CharacterAfflictions.NumStatusTypes; i++)
                         affl.SetStatus((CharacterAfflictions.STATUSTYPE)i, 0f, false);
+                    try { affl.RemoveAllThorns(); } catch { }
                 }
                 else
                 {

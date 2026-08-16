@@ -821,6 +821,129 @@ namespace PeakMX
             }
         }
 
+        public static bool RandomizeOutfitAndColor(bool track = true)
+        {
+            bool changed = false;
+            try
+            {
+                int skin = RandomGrantableIndex(CosmeticCategory.Skin);
+                int outfit = RandomGrantableIndex(CosmeticCategory.Outfit);
+
+                if (skin >= 0) changed |= SetCosmetic(CosmeticCategory.Skin, skin);
+                if (outfit >= 0) changed |= SetCosmetic(CosmeticCategory.Outfit, outfit);
+
+                if (changed && track)
+                    ActionTracker.Track("cosmetic_random_outfit_color");
+            }
+            catch (Exception e) { Plugin.Log?.LogWarning($"[GameApi] RandomizeOutfitAndColor: {e.Message}"); }
+            return changed;
+        }
+
+        private static int RandomGrantableIndex(CosmeticCategory category)
+        {
+            var options = GetCosmeticOptions(category);
+            var candidates = new List<int>();
+            for (int i = 0; i < options.Length; i++)
+            {
+                var option = options[i];
+                if (option == null || option.isBlank) continue;
+                if (IsCosmeticOptionGrantable(category, option))
+                    candidates.Add(i);
+            }
+
+            return candidates.Count == 0 ? -1 : candidates[UnityEngine.Random.Range(0, candidates.Count)];
+        }
+
+        public static bool CloneLocalAppearanceFrom(Character source, bool includeNickname)
+        {
+            try
+            {
+                Character me = Character.localCharacter;
+                if (source == null || me == null) return false;
+
+                var sourceCustomization = source.refs != null ? source.refs.customization : null;
+                var localCustomization = LocalCustomization();
+                if (sourceCustomization == null || localCustomization == null) return false;
+
+                var owner = OwnerOf(source) ?? PhotonNetwork.LocalPlayer;
+                CharacterCustomizationData data = GetCustomizationDataFor(sourceCustomization, owner);
+                ApplyCustomizationData(localCustomization, data);
+
+                if (includeNickname)
+                    SetLocalNickname(SafeCharacterName(source), false);
+
+                ActionTracker.Track("cosmetic_clone_player", includeNickname ? 1 : 0, new Dictionary<string, object>
+                {
+                    ["target"] = SafeCharacterName(source),
+                });
+                return true;
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogWarning($"[GameApi] CloneLocalAppearanceFrom: {e.Message}");
+                return false;
+            }
+        }
+
+        private static void ApplyCustomizationData(CharacterCustomization cc, CharacterCustomizationData data)
+        {
+            data.CorrectValues();
+            SetCustomizationData(cc, data);
+            InvokeCustomizationSetter(cc, CustomSetSkin, data.currentSkin);
+            InvokeCustomizationSetter(cc, CustomSetAccessory, data.currentAccessory);
+            InvokeCustomizationSetter(cc, CustomSetEyes, data.currentEyes);
+            InvokeCustomizationSetter(cc, CustomSetMouth, data.currentMouth);
+            InvokeCustomizationSetter(cc, CustomSetOutfit, data.currentOutfit);
+            InvokeCustomizationSetter(cc, CustomSetHat, data.currentHat);
+            InvokeCustomizationSetter(cc, CustomSetSash, data.currentSash);
+            InvokeCustomizationSetter(cc, CustomSetMedal, data.currentMedal);
+        }
+
+        public static string LocalNickname()
+        {
+            try
+            {
+                string nick = PhotonNetwork.LocalPlayer != null ? PhotonNetwork.LocalPlayer.NickName : PhotonNetwork.NickName;
+                if (!string.IsNullOrWhiteSpace(nick)) return nick;
+                Character me = Character.localCharacter;
+                if (me != null && !string.IsNullOrWhiteSpace(me.characterName)) return me.characterName;
+            }
+            catch { }
+            return "";
+        }
+
+        public static bool SetLocalNickname(string nickname, bool track = true)
+        {
+            try
+            {
+                string clean = CleanNickname(nickname);
+                if (string.IsNullOrWhiteSpace(clean)) return false;
+
+                PhotonNetwork.NickName = clean;
+                if (PhotonNetwork.LocalPlayer != null)
+                    PhotonNetwork.LocalPlayer.NickName = clean;
+
+                RefreshPlayers();
+                if (track)
+                    ActionTracker.Track("nickname_set", clean.Length);
+                return true;
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogWarning($"[GameApi] SetLocalNickname: {e.Message}");
+                return false;
+            }
+        }
+
+        private static string CleanNickname(string nickname)
+        {
+            if (string.IsNullOrWhiteSpace(nickname)) return "";
+            string clean = nickname.Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ').Trim();
+            while (clean.Contains("  "))
+                clean = clean.Replace("  ", " ");
+            return clean.Length > 32 ? clean.Substring(0, 32) : clean;
+        }
+
         public static bool UnlockCosmeticOption(CustomizationOption option)
         {
             if (option == null) return false;
@@ -978,17 +1101,29 @@ namespace PeakMX
 
         private static CharacterCustomizationData GetCustomizationData(CharacterCustomization cc)
         {
+            return GetCustomizationDataFor(cc, PhotonNetwork.LocalPlayer);
+        }
+
+        private static CharacterCustomizationData GetCustomizationDataFor(CharacterCustomization cc, Photon.Realtime.Player player)
+        {
             if (CustomGetData == null) return default;
+            if (player == null) return default;
             object target = CustomGetData.IsStatic ? null : cc;
-            object result = CustomGetData.Invoke(target, new object[] { PhotonNetwork.LocalPlayer });
+            object result = CustomGetData.Invoke(target, new object[] { player });
             return result is CharacterCustomizationData data ? data : default;
         }
 
         private static void SetCustomizationData(CharacterCustomization cc, CharacterCustomizationData data)
         {
+            SetCustomizationDataFor(cc, data, PhotonNetwork.LocalPlayer);
+        }
+
+        private static void SetCustomizationDataFor(CharacterCustomization cc, CharacterCustomizationData data, Photon.Realtime.Player player)
+        {
             if (CustomSetData == null) return;
+            if (player == null) return;
             object target = CustomSetData.IsStatic ? null : cc;
-            CustomSetData.Invoke(target, new object[] { data, PhotonNetwork.LocalPlayer });
+            CustomSetData.Invoke(target, new object[] { data, player });
         }
 
         private static void InvokeCustomizationSetter(CharacterCustomization cc, MethodInfo method, int index)
@@ -1937,9 +2072,28 @@ namespace PeakMX
         // ---------------- stamina / afflictions (the status bar) ----------------
         // Index matches CharacterAfflictions.STATUSTYPE order.
         public static readonly string[] StatusEn =
-            { "Injury", "Hunger", "Cold", "Poison", "Crab", "Curse", "Drowsy", "Weight", "Hot", "Thorns", "Spores", "Web" };
+            { "Injury", "Hunger", "Cold", "Poison", "Crab", "Curse", "Drowsy", "Weight", "Hot", "Thorns", "Spores", "Web", "Arrows", "Petrify", "Flytrap" };
         public static readonly string[] StatusRu =
-            { "Травма", "Голод", "Холод", "Яд", "Краб", "Проклятие", "Сонливость", "Вес", "Жара", "Шипы", "Споры", "Паутина" };
+            { "Травма", "Голод", "Холод", "Яд", "Краб", "Проклятие", "Сонливость", "Вес", "Жара", "Шипы", "Споры", "Паутина", "Стрелы", "Окаменение", "Мухоловка" };
+
+        private const int ArrowStatusIndex = (int)CharacterAfflictions.STATUSTYPE.Arrow;
+        private const int PetrifyStatusIndex = (int)CharacterAfflictions.STATUSTYPE.Petrify;
+
+        private static int StatusCount()
+        {
+            try { return Mathf.Min(CharacterAfflictions.NumStatusTypes, StatusEn.Length); }
+            catch { return StatusEn.Length; }
+        }
+
+        private static bool IsStatusIndex(int idx)
+        {
+            return idx >= 0 && idx < StatusCount();
+        }
+
+        private static string StatusLabel(int idx)
+        {
+            return idx >= 0 && idx < StatusEn.Length ? StatusEn[idx] : idx.ToString();
+        }
 
         /// <summary>Refill a character's stamina to full.</summary>
         public static void FullStamina(Character c)
@@ -1978,19 +2132,34 @@ namespace PeakMX
         {
             try
             {
-                if (!RequireHostForRemote(c, "set status")) return;
-                var a = c != null && c.refs != null ? c.refs.afflictions : null;
-                if (a == null || idx < 0 || idx > 11) return;
+                Character target = c ?? Character.localCharacter;
+                if (!RequireHostForRemote(target, "set status")) return;
+                var a = target != null && target.refs != null ? target.refs.afflictions : null;
+                if (a == null || !IsStatusIndex(idx)) return;
                 float clamped = Mathf.Clamp01(amount);
                 var type = (CharacterAfflictions.STATUSTYPE)idx;
-                PrepareLocalStatusWrite(c, type, clamped);
-                if (IsLocal(c))
+
+                if (idx == PetrifyStatusIndex)
+                {
+                    SetPetrifyAmount(target, Mathf.RoundToInt(clamped * 100f), track);
+                    return;
+                }
+
+                if (idx == ArrowStatusIndex)
+                {
+                    if (clamped <= 0.001f) ClearArrows(target, track);
+                    else AddArrowPrank(target, Mathf.Clamp(Mathf.CeilToInt(clamped * 8f), 1, 8), track);
+                    return;
+                }
+
+                PrepareLocalStatusWrite(target, type, clamped);
+                if (IsLocal(target))
                 {
                     a.SetStatus(type, clamped);
                 }
                 else if (IsHost())
                 {
-                    float current = a.GetCurrentStatus(type);
+                    float current = CurrentStatusValue(target, type);
                     float deltaValue = clamped - current;
                     if (Mathf.Abs(deltaValue) > 0.0001f)
                     {
@@ -2009,12 +2178,25 @@ namespace PeakMX
                 {
                     ActionTracker.Track("status_set", amount, new Dictionary<string, object>
                     {
-                        ["target"] = SafeCharacterName(c),
-                        ["status"] = idx >= 0 && idx < StatusEn.Length ? StatusEn[idx] : idx.ToString(),
+                        ["target"] = SafeCharacterName(target),
+                        ["status"] = StatusLabel(idx),
                     });
                 }
             }
             catch (Exception e) { Plugin.Log?.LogWarning($"[GameApi] SetStatus: {e.Message}"); }
+        }
+
+        private static float CurrentStatusValue(Character c, CharacterAfflictions.STATUSTYPE type)
+        {
+            try
+            {
+                if ((int)type == PetrifyStatusIndex && c != null && c.data != null)
+                    return Mathf.Clamp01(c.data.petrifyAmount / 100f);
+
+                var a = c != null && c.refs != null ? c.refs.afflictions : null;
+                return a != null ? a.GetCurrentStatus(type) : 0f;
+            }
+            catch { return 0f; }
         }
 
         private static void PrepareLocalStatusWrite(Character target, CharacterAfflictions.STATUSTYPE type, float amount)
@@ -2058,16 +2240,17 @@ namespace PeakMX
         {
             try
             {
-                if (!RequireHostForRemote(c, "increase status")) return;
-                var a = c != null && c.refs != null ? c.refs.afflictions : null;
-                if (a == null || idx < 0 || idx > 11) return;
-                float current = a.GetCurrentStatus((CharacterAfflictions.STATUSTYPE)idx);
+                Character target = c ?? Character.localCharacter;
+                if (!RequireHostForRemote(target, "increase status")) return;
+                var a = target != null && target.refs != null ? target.refs.afflictions : null;
+                if (a == null || !IsStatusIndex(idx)) return;
+                float current = CurrentStatusValue(target, (CharacterAfflictions.STATUSTYPE)idx);
                 float next = Mathf.Clamp01(current + Mathf.Max(0f, amount));
-                SetStatus(c, idx, next, false);
+                SetStatus(target, idx, next, false);
                 ActionTracker.Track("status_increase", amount, new Dictionary<string, object>
                 {
-                    ["target"] = SafeCharacterName(c),
-                    ["status"] = idx >= 0 && idx < StatusEn.Length ? StatusEn[idx] : idx.ToString(),
+                    ["target"] = SafeCharacterName(target),
+                    ["status"] = StatusLabel(idx),
                 });
             }
             catch (Exception e) { Plugin.Log?.LogWarning($"[GameApi] IncreaseStatus: {e.Message}"); }
@@ -2085,9 +2268,12 @@ namespace PeakMX
         /// <summary>Clear every affliction (full heal) on a character.</summary>
         public static void ClearAllStatus(Character c)
         {
-            if (!RequireHostForRemote(c, "clear status")) return;
-            for (int i = 0; i < 12; i++) SetStatus(c, i, 0f, false);
-            ActionTracker.Track("status_clear_all", null, new Dictionary<string, object> { ["target"] = SafeCharacterName(c) });
+            Character target = c ?? Character.localCharacter;
+            if (!RequireHostForRemote(target, "clear status")) return;
+            for (int i = 0; i < StatusCount(); i++) SetStatus(target, i, 0f, false);
+            RemovePhysicalThorns(target, false, false);
+            SetPetrifyAmount(target, 0, false);
+            ActionTracker.Track("status_clear_all", null, new Dictionary<string, object> { ["target"] = SafeCharacterName(target) });
         }
 
         /// <summary>Prank: pile a bunch of nasty afflictions onto a player.</summary>
@@ -2104,6 +2290,7 @@ namespace PeakMX
             SetStatusAtLeast(target, 4, amount);  // Crab
             SetStatusAtLeast(target, 6, amount);  // Drowsy
             SetStatusAtLeast(target, 11, amount); // Web
+            SetStatusAtLeast(target, 14, amount); // Flytrap
             ActionTracker.Track("prank_afflict", amount, new Dictionary<string, object> { ["target"] = SafeCharacterName(target) });
         }
 
@@ -2112,14 +2299,146 @@ namespace PeakMX
             try
             {
                 var a = c != null && c.refs != null ? c.refs.afflictions : null;
-                float current = a != null && idx >= 0 && idx <= 11
-                    ? a.GetCurrentStatus((CharacterAfflictions.STATUSTYPE)idx)
+                float current = a != null && IsStatusIndex(idx)
+                    ? CurrentStatusValue(c, (CharacterAfflictions.STATUSTYPE)idx)
                     : 0f;
                 SetStatus(c, idx, Mathf.Max(current, Mathf.Clamp01(amount)), false);
             }
             catch
             {
                 SetStatus(c, idx, Mathf.Clamp01(amount), false);
+            }
+        }
+
+        public static void PetrifyPlayer(Character c)
+        {
+            SetPetrifyAmount(c ?? Character.localCharacter, 100);
+        }
+
+        public static void ClearPetrify(Character c)
+        {
+            SetPetrifyAmount(c ?? Character.localCharacter, 0);
+        }
+
+        public static void SetPetrifyAmount(Character c, int amount, bool track = true)
+        {
+            try
+            {
+                Character target = c ?? Character.localCharacter;
+                if (target == null || target.data == null) return;
+                if (!RequireHostForRemote(target, "set petrify")) return;
+
+                int clamped = Mathf.Clamp(amount, 0, 100);
+                if (IsLocal(target))
+                {
+                    target.data.SetPetrify(clamped);
+                }
+                else if (IsHost())
+                {
+                    var view = ((MonoBehaviourPun)target.data).photonView;
+                    if (view != null)
+                        view.RPC("RPC_SyncPetrify", RpcTarget.All, new object[] { clamped });
+                    else
+                        target.data.SetPetrify(clamped);
+                }
+
+                if (track)
+                {
+                    ActionTracker.Track("status_set_petrify", clamped, new Dictionary<string, object>
+                    {
+                        ["target"] = SafeCharacterName(target),
+                    });
+                }
+            }
+            catch (Exception e) { Plugin.Log?.LogWarning($"[GameApi] SetPetrifyAmount: {e.Message}"); }
+        }
+
+        public static void AddArrowPrank(Character c, int count = 1, bool track = true)
+        {
+            try
+            {
+                Character target = c ?? Character.localCharacter;
+                if (target == null) return;
+
+                if (!IsLocal(target))
+                {
+                    AddAdminLog($"{SafeCharacterName(target)}: arrows can only be added by that player's client");
+                    Plugin.Log?.LogWarning("[GameApi] add arrows: target owner only");
+                    return;
+                }
+
+                var affl = target.refs != null ? target.refs.afflictions : null;
+                if (affl == null) return;
+
+                int n = Mathf.Clamp(count, 1, 12);
+                for (int i = 0; i < n; i++)
+                {
+                    Vector3 offset = UnityEngine.Random.insideUnitSphere * 0.35f;
+                    affl.AddArrow(SafePosition(target) + Vector3.up * 0.8f + offset, Vector3.up);
+                }
+
+                if (track)
+                {
+                    ActionTracker.Track("prank_add_arrows", n, new Dictionary<string, object>
+                    {
+                        ["target"] = SafeCharacterName(target),
+                    });
+                }
+            }
+            catch (Exception e) { Plugin.Log?.LogWarning($"[GameApi] AddArrowPrank: {e.Message}"); }
+        }
+
+        public static void ClearArrows(Character c, bool track = true)
+        {
+            int removed = RemovePhysicalThorns(c ?? Character.localCharacter, true, track);
+            if (track)
+            {
+                ActionTracker.Track("status_clear_arrows", removed, new Dictionary<string, object>
+                {
+                    ["target"] = SafeCharacterName(c ?? Character.localCharacter),
+                });
+            }
+        }
+
+        private static int RemovePhysicalThorns(Character c, bool arrowsOnly, bool logFailures)
+        {
+            try
+            {
+                Character target = c ?? Character.localCharacter;
+                if (target == null) return 0;
+                if (!RequireHostForRemote(target, arrowsOnly ? "clear arrows" : "clear thorns")) return 0;
+
+                var affl = target.refs != null ? target.refs.afflictions : null;
+                var thorns = affl != null ? affl.physicalThorns : null;
+                if (affl == null || thorns == null) return 0;
+
+                int removed = 0;
+                for (int i = 0; i < thorns.Count; i++)
+                {
+                    ThornOnMe thorn = thorns[i];
+                    if (thorn == null || !thorn.stuckIn) continue;
+                    if (arrowsOnly && !thorn.isArrow) continue;
+
+                    if (IsLocal(target))
+                    {
+                        affl.RemoveThorn(thorn, removedByPlayer: false);
+                    }
+                    else if (IsHost())
+                    {
+                        var view = ((MonoBehaviourPun)affl).photonView;
+                        if (view != null && view.Owner != null)
+                            view.RPC("RemoveThornRPC", view.Owner, new object[] { i, false });
+                    }
+
+                    removed++;
+                }
+
+                return removed;
+            }
+            catch (Exception e)
+            {
+                if (logFailures) Plugin.Log?.LogWarning($"[GameApi] RemovePhysicalThorns: {e.Message}");
+                return 0;
             }
         }
 
@@ -2497,11 +2816,11 @@ namespace PeakMX
                 var a = c != null && c.refs != null ? c.refs.afflictions : null;
                 if (a == null) return "";
                 var parts = new List<string>();
-                for (int i = 0; i < 12; i++)
+                string[] names = russian ? StatusRu : StatusEn;
+                for (int i = 0; i < StatusCount(); i++)
                 {
-                    float value = a.GetCurrentStatus((CharacterAfflictions.STATUSTYPE)i);
+                    float value = CurrentStatusValue(c, (CharacterAfflictions.STATUSTYPE)i);
                     if (value < 0.01f) continue;
-                    string[] names = russian ? StatusRu : StatusEn;
                     string label = i >= 0 && i < names.Length ? names[i] : i.ToString();
                     parts.Add(label + " " + Mathf.RoundToInt(value * 100f) + "%");
                 }

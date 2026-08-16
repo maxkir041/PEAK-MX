@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using HarmonyLib;
 using Photon.Pun;
 using Photon.Realtime;
@@ -385,6 +386,67 @@ namespace PeakMX
         private static bool Prefix()
         {
             return !ModConfig.UnlimitedItemUses;
+        }
+    }
+
+    [HarmonyPatch(typeof(CharacterVoiceHandler), "Update")]
+    public static class GlobalVoicePatch
+    {
+        private static readonly FieldInfo CharacterField = AccessTools.Field(typeof(CharacterVoiceHandler), "m_character");
+        private static readonly FieldInfo SourceField = AccessTools.Field(typeof(CharacterVoiceHandler), "m_source");
+        private static readonly FieldInfo AudioLevelField = AccessTools.Field(typeof(CharacterVoiceHandler), "audioLevel");
+        private static readonly FieldInfo LastFalloffField = AccessTools.Field(typeof(CharacterVoiceHandler), "_lastMeasuredFalloff");
+
+        private static void Postfix(CharacterVoiceHandler __instance)
+        {
+            try
+            {
+                if (!ModConfig.GlobalVoice || __instance == null)
+                    return;
+
+                Character character = CharacterField?.GetValue(__instance) as Character;
+                if (character != null && character.IsLocal)
+                    return;
+
+                object source = SourceField?.GetValue(__instance);
+                if (source == null)
+                    source = ((Component)__instance).GetComponent("AudioSource");
+                if (source == null)
+                    return;
+
+                float audioLevel = 1f;
+                if (AudioLevelField != null && AudioLevelField.GetValue(__instance) is float level)
+                    audioLevel = Mathf.Clamp01(level);
+
+                SetFloatProperty(source, "spatialBlend", 0f);
+                SetBoolProperty(source, "bypassReverbZones", true);
+                float currentVolume = GetFloatProperty(source, "volume", 0f);
+                SetFloatProperty(source, "volume", Mathf.Clamp01(Mathf.Max(currentVolume, audioLevel)));
+                LastFalloffField?.SetValue(__instance, 1f);
+            }
+            catch (Exception e) { Plugin.Log?.LogWarning($"[GlobalVoicePatch] {e.Message}"); }
+        }
+
+        private static float GetFloatProperty(object target, string name, float fallback)
+        {
+            try
+            {
+                object value = target.GetType().GetProperty(name)?.GetValue(target, null);
+                return value is float f ? f : fallback;
+            }
+            catch { return fallback; }
+        }
+
+        private static void SetFloatProperty(object target, string name, float value)
+        {
+            try { target.GetType().GetProperty(name)?.SetValue(target, value, null); }
+            catch { }
+        }
+
+        private static void SetBoolProperty(object target, string name, bool value)
+        {
+            try { target.GetType().GetProperty(name)?.SetValue(target, value, null); }
+            catch { }
         }
     }
 }

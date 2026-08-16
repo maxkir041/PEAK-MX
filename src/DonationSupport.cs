@@ -30,6 +30,7 @@ namespace PeakMX
     {
         private const string Endpoint = "https://peak-mx.rkngov.com/api/donations";
         private static readonly List<DonationSupporter> _supporters = new List<DonationSupporter>();
+        private static readonly List<DonationSupporter> _latest = new List<DonationSupporter>();
         private static DateTime _lastRefreshUtc = DateTime.MinValue;
         private static string _lastLang;
         private static bool _loading;
@@ -41,6 +42,7 @@ namespace PeakMX
         public static int HiddenOlderThanDays { get; private set; } = 60;
         public static DonationGoal Goal { get; private set; } = DonationGoal.Empty;
         public static IReadOnlyList<DonationSupporter> Supporters => _supporters;
+        public static IReadOnlyList<DonationSupporter> Latest => _latest;
 
         public static void Init()
         {
@@ -94,32 +96,42 @@ namespace PeakMX
             HiddenOlderThanDays = (int)(ExtractDouble(json, "hiddenOlderThanDays") ?? 60d);
             MinPublicAmount = ExtractDouble(json, "minPublicAmount") ?? 100d;
 
-            var parsed = new List<DonationSupporter>();
-            var match = Regex.Match(json ?? "", "\"supporters\"\\s*:\\s*\\[(?<items>.*?)\\]\\s*,", RegexOptions.Singleline);
-            if (match.Success)
-            {
-                foreach (Match item in Regex.Matches(match.Groups["items"].Value, "\\{(?<obj>.*?)\\}", RegexOptions.Singleline))
-                {
-                    string obj = item.Groups["obj"].Value;
-                    string name = ExtractString(obj, "name");
-                    if (string.IsNullOrWhiteSpace(name))
-                        continue;
-                    parsed.Add(new DonationSupporter
-                    {
-                        Name = name,
-                        Amount = ExtractDouble(obj, "amount") ?? 0d,
-                        Currency = ExtractString(obj, "currency") ?? Goal.Currency ?? "RUB",
-                        Count = (int)(ExtractDouble(obj, "count") ?? 0d),
-                        LastDonationAt = ExtractString(obj, "lastDonationAt"),
-                    });
-                }
-            }
+            var parsed = ParseDonationArray(json, "supporters", "lastDonationAt");
+            var parsedLatest = ParseDonationArray(json, "latest", "createdAt");
 
             lock (_supporters)
             {
                 _supporters.Clear();
                 _supporters.AddRange(parsed);
+                _latest.Clear();
+                _latest.AddRange(parsedLatest);
             }
+        }
+
+        private static List<DonationSupporter> ParseDonationArray(string json, string arrayName, string dateField)
+        {
+            var parsed = new List<DonationSupporter>();
+            var match = Regex.Match(json ?? "", $"\"{Regex.Escape(arrayName)}\"\\s*:\\s*\\[(?<items>.*?)\\]\\s*,", RegexOptions.Singleline);
+            if (!match.Success)
+                return parsed;
+
+            foreach (Match item in Regex.Matches(match.Groups["items"].Value, "\\{(?<obj>.*?)\\}", RegexOptions.Singleline))
+            {
+                string obj = item.Groups["obj"].Value;
+                string name = ExtractString(obj, "name");
+                if (string.IsNullOrWhiteSpace(name))
+                    continue;
+                parsed.Add(new DonationSupporter
+                {
+                    Name = name,
+                    Amount = ExtractDouble(obj, "amount") ?? 0d,
+                    Currency = ExtractString(obj, "currency") ?? Goal.Currency ?? "RUB",
+                    Count = (int)(ExtractDouble(obj, "count") ?? 1d),
+                    LastDonationAt = ExtractString(obj, dateField),
+                });
+            }
+
+            return parsed;
         }
 
         private static double? ExtractNullableDouble(string json, string name)

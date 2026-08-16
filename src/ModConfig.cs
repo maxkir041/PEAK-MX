@@ -57,6 +57,7 @@ namespace PeakMX
         public static bool CinematicCamera;
         public static float CinematicCameraSpeed = 8f;
         public static float CinematicCameraFov = 65f;
+        public static bool GlobalVoice;
 
         // ---- Stamina tuning ----
         public static float StaminaConsumptionPercent = 100f;
@@ -104,6 +105,10 @@ namespace PeakMX
 
         // ---- UI ----
         public static ConfigEntry<float> UiScale;
+        public static ConfigEntry<string> AccentColorHex;
+        public static ConfigEntry<string> ActionColorHex;
+        public static bool RapidRandomOutfitColor;
+        public static float RapidRandomOutfitColorInterval = 0.15f;
 
         // ---- World / Time ----
         public static bool OverrideExpeditionTime;
@@ -149,6 +154,10 @@ namespace PeakMX
             UiScale = cfg.Bind("UI", "Scale", 1f,
                 new ConfigDescription("Menu size multiplier (0.6–2.0).",
                     new AcceptableValueRange<float>(0.6f, 2f)));
+            AccentColorHex = cfg.Bind("UI", "AccentColor", "#41D58A",
+                "Main menu accent color in #RRGGBB format.");
+            ActionColorHex = cfg.Bind("UI", "ActionColor", "#599FF4",
+                "Primary action button color in #RRGGBB format.");
             Language = cfg.Bind("UI", "Language", 1,
                 new ConfigDescription("0=English, 1=Russian, 2=Ukrainian, 3=zh-CN, 4=zh-TW, 5=ja, " +
                     "6=ko, 7=es, 8=pt-BR, 9=de, 10=fr, 11=it, 12=pl, 13=tr",

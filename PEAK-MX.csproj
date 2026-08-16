@@ -4,7 +4,7 @@
     <AssemblyName>PEAK-MX</AssemblyName>
     <Product>PEAK-MX</Product>
     <Description>PEAK-MX — quality-of-life and utility mod for PEAK. Original work by maxkir041.</Description>
-    <Version>1.0.13</Version>
+    <Version>1.0.14</Version>
     <TargetFramework>net472</TargetFramework>
     <LangVersion>11.0</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -36,6 +36,7 @@
       <HintPath>$(BepInExRoot)\core\0Harmony.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="System.Windows.Forms" />
 
     <!-- Game assemblies -->
     <Reference Include="Assembly-CSharp">
@@ -60,6 +61,10 @@
     </Reference>
     <Reference Include="UnityEngine.IMGUIModule">
       <HintPath>$(GameManaged)\UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ScreenCaptureModule">
+      <HintPath>$(GameManaged)\UnityEngine.ScreenCaptureModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule">
