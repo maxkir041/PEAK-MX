@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+#if !DISABLE_FEEDBACK_FILE_ATTACHMENTS
 using System.Diagnostics;
+#endif
 using System.IO;
 using System.Net;
 using System.Text;
@@ -39,9 +41,10 @@ namespace PeakMX
         private const string ClientToken = "peak-mx-public-v1";
         private const int MaxAttachmentBytes = 330 * 1024;
         private static readonly List<FeedbackTicket> _tickets = new List<FeedbackTicket>();
-        private static readonly object _pickerLock = new object();
         private static System.Reflection.MethodInfo _loadImageMethod;
         private static System.Reflection.MethodInfo _encodeJpgMethod;
+#if !DISABLE_FEEDBACK_FILE_ATTACHMENTS
+        private static readonly object _pickerLock = new object();
         private static bool _pickerRunning;
         private static bool _pickerCompleted;
         private static Process _pickerProcess;
@@ -49,6 +52,7 @@ namespace PeakMX
         private static string _pickerScriptPath;
         private static string[] _pickedPaths;
         private static string _pickerError;
+#endif
 
         public static bool IsSending { get; private set; }
         public static bool IsCommenting { get; private set; }
@@ -67,6 +71,7 @@ namespace PeakMX
                     return _tickets.ToArray();
             }
         }
+#if !DISABLE_FEEDBACK_FILE_ATTACHMENTS
         public static bool IsPickingFiles
         {
             get
@@ -75,6 +80,7 @@ namespace PeakMX
                     return _pickerRunning;
             }
         }
+#endif
 
         public static void SubmitAsync(string type, string title, string message, string contact, byte[] screenshotJpeg = null)
         {
@@ -213,6 +219,7 @@ namespace PeakMX
             });
         }
 
+#if !DISABLE_FEEDBACK_FILE_ATTACHMENTS
         public static void PickImageFilesAsync()
         {
             lock (_pickerLock)
@@ -494,6 +501,8 @@ namespace PeakMX
             {
             }
         }
+
+#endif
 
         public static byte[] CaptureScreenshotJpeg(out string error)
         {

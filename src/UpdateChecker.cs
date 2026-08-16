@@ -1,6 +1,8 @@
 using System;
+#if !DISABLE_AUTO_UPDATE_INSTALL
 using System.Diagnostics;
 using System.IO;
+#endif
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -90,9 +92,13 @@ namespace PeakMX
             AssetUrl = assetUrl;
             int compare = CompareVersions(latest, Plugin.Version);
             UpdateAvailable = compare > 0;
+#if DISABLE_AUTO_UPDATE_INSTALL
+            CanAutoInstall = false;
+#else
             CanAutoInstall = UpdateAvailable && IsWindows() && !string.IsNullOrWhiteSpace(assetUrl)
                 && (assetName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
                     || assetName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+#endif
             Status = UpdateAvailable
                 ? ""
                 : compare < 0
@@ -102,6 +108,10 @@ namespace PeakMX
 
         public static void InstallAsync()
         {
+#if DISABLE_AUTO_UPDATE_INSTALL
+            Error = "auto_install_unavailable";
+            Status = "";
+#else
             lock (Lock)
             {
                 if (IsInstalling || InstallQueued)
@@ -130,8 +140,10 @@ namespace PeakMX
                     IsInstalling = false;
                 }
             });
+#endif
         }
 
+#if !DISABLE_AUTO_UPDATE_INSTALL
         private static void InstallNow()
         {
             if (!CanAutoInstall)
@@ -167,6 +179,7 @@ namespace PeakMX
             };
             Process.Start(psi);
         }
+#endif
 
         private static WebClient CreateClient()
         {
@@ -176,6 +189,7 @@ namespace PeakMX
             return client;
         }
 
+#if !DISABLE_AUTO_UPDATE_INSTALL
         private static string BuildInstallScript(string targetDll, string updateFile, string workDir)
         {
             int pid = Process.GetCurrentProcess().Id;
@@ -201,6 +215,7 @@ namespace PeakMX
                 "$text = 'Installed PEAK-MX " + EscapePowerShellPlainText(latest) + " at ' + (Get-Date).ToString('u')\r\n" +
                 "$text | Out-File -LiteralPath $log -Encoding UTF8\r\n";
         }
+#endif
 
         private static void PickAsset(string json, out string assetName, out string assetUrl)
         {
@@ -289,6 +304,7 @@ namespace PeakMX
             return match.Success ? match.Value : "0.0.0";
         }
 
+#if !DISABLE_AUTO_UPDATE_INSTALL
         private static bool IsWindows()
         {
             PlatformID platform = Environment.OSVersion.Platform;
@@ -317,5 +333,6 @@ namespace PeakMX
         {
             return (value ?? "").Replace("'", "''");
         }
+#endif
     }
 }

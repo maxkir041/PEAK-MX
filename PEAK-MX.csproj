@@ -17,7 +17,21 @@
   <PropertyGroup Condition="'$(Configuration)' == 'Thunderstore'">
     <Optimize>true</Optimize>
     <DebugType>none</DebugType>
-    <DefineConstants>$(DefineConstants);THUNDERSTORE_PACKAGE;THUNDERSTORE_NO_ANALYTICS</DefineConstants>
+    <DefineConstants>$(DefineConstants);THUNDERSTORE_PACKAGE;THUNDERSTORE_NO_ANALYTICS;DISABLE_FEEDBACK_FILE_ATTACHMENTS;DISABLE_AUTO_UPDATE_INSTALL</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Nexus'">
+    <Optimize>true</Optimize>
+    <DebugType>none</DebugType>
+    <DefineConstants>$(DefineConstants);DISABLE_FEEDBACK_FILE_ATTACHMENTS;DISABLE_AUTO_UPDATE_INSTALL</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(DisableFeedbackFileAttachments)' == 'true'">
+    <DefineConstants>$(DefineConstants);DISABLE_FEEDBACK_FILE_ATTACHMENTS</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(DisableAutoUpdateInstall)' == 'true'">
+    <DefineConstants>$(DefineConstants);DISABLE_AUTO_UPDATE_INSTALL</DefineConstants>
   </PropertyGroup>
 
   <!-- Adjust these two paths if your install differs -->
@@ -36,7 +50,7 @@
       <HintPath>$(BepInExRoot)\core\0Harmony.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Windows.Forms" Condition="'$(Configuration)' != 'Thunderstore' and '$(Configuration)' != 'Nexus' and '$(DisableFeedbackFileAttachments)' != 'true'" />
 
     <!-- Game assemblies -->
     <Reference Include="Assembly-CSharp">
@@ -102,7 +116,7 @@
   </ItemGroup>
 
   <!-- Авто-деплой собранной DLL в plugins (чтобы не копировать вручную) -->
-  <Target Name="DeployToPlugins" AfterTargets="Build" Condition="'$(Configuration)' != 'Thunderstore'">
+  <Target Name="DeployToPlugins" AfterTargets="Build" Condition="'$(Configuration)' != 'Thunderstore' and '$(Configuration)' != 'Nexus' and '$(DeployToPlugins)' != 'false'">
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExRoot)\plugins" SkipUnchangedFiles="false" />
   </Target>
 

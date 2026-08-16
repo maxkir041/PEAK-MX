@@ -97,6 +97,7 @@ namespace PeakMX
         private static string _feedbackMessage = "";
         private static string _feedbackContact = "";
         private static bool _feedbackRepliesOpen = true;
+#if !DISABLE_FEEDBACK_FILE_ATTACHMENTS
         private static bool _feedbackAttachScreenshot;
         private static bool _feedbackCommentAttachScreenshot;
         private static bool _feedbackPickForComment;
@@ -104,11 +105,12 @@ namespace PeakMX
         private static FullScreenMode _feedbackPickerFullscreenMode;
         private static int _feedbackPickerWidth;
         private static int _feedbackPickerHeight;
-        private static string _feedbackSelectedTicket = "";
-        private static string _feedbackCommentMessage = "";
         private static string _feedbackScreenshotError = "";
         private static readonly List<FeedbackAttachment> _feedbackAttachments = new List<FeedbackAttachment>();
         private static readonly List<FeedbackAttachment> _feedbackCommentAttachments = new List<FeedbackAttachment>();
+#endif
+        private static string _feedbackSelectedTicket = "";
+        private static string _feedbackCommentMessage = "";
 
         private struct ThemeColorPreset
         {
@@ -1447,7 +1449,9 @@ namespace PeakMX
 
         private static void DrawFeedbackPanel()
         {
+#if !DISABLE_FEEDBACK_FILE_ATTACHMENTS
             ConsumePickedFeedbackImages();
+#endif
 
             GUILayout.Space(8);
             GUILayout.Label(Ru ? "Предложить / сообщить о проблеме" : "Suggest / report a problem", Theme.Section);
@@ -1469,12 +1473,16 @@ namespace PeakMX
 
             GUILayout.Label(Ru ? "Контакт для ответа, если хочешь" : "Contact for a reply, optional", Theme.LabelDim);
             _feedbackContact = ClipInput(GUILayout.TextField(_feedbackContact ?? "", Theme.TextInput, GUILayout.Height(28)), 160);
+#if !DISABLE_FEEDBACK_FILE_ATTACHMENTS
             DrawFeedbackAttachmentControls(_feedbackAttachments, ref _feedbackAttachScreenshot, false);
+#endif
 
             if (!string.IsNullOrWhiteSpace(FeedbackClient.LastError))
                 GUILayout.Label((Ru ? "Ошибка: " : "Error: ") + FeedbackClient.LastError, Theme.LabelDim);
+#if !DISABLE_FEEDBACK_FILE_ATTACHMENTS
             else if (!string.IsNullOrWhiteSpace(_feedbackScreenshotError))
                 GUILayout.Label((Ru ? "Изображения: " : "Images: ") + _feedbackScreenshotError, Theme.LabelDim);
+#endif
             else if (FeedbackClient.IsSending)
                 GUILayout.Label(Ru ? "Отправляю..." : "Sending...", Theme.LabelDim);
             else if (FeedbackClient.IsClosing)
@@ -1492,6 +1500,7 @@ namespace PeakMX
             GUI.enabled = canSend;
             if (GUILayout.Button(FeedbackClient.IsSending ? (Ru ? "Отправляю..." : "Sending...") : (Ru ? "Отправить" : "Send"), Theme.DonateBtn, GUILayout.Height(30)))
             {
+#if !DISABLE_FEEDBACK_FILE_ATTACHMENTS
                 var attachments = BuildFeedbackAttachments(_feedbackAttachments, _feedbackAttachScreenshot);
                 if (attachments != null)
                     FeedbackClient.SubmitAsync(
@@ -1500,6 +1509,13 @@ namespace PeakMX
                         _feedbackMessage,
                         _feedbackContact,
                         attachments);
+#else
+                FeedbackClient.SubmitAsync(
+                    FeedbackTypeKeys[Mathf.Clamp(_feedbackKind, 0, FeedbackTypeKeys.Length - 1)],
+                    _feedbackTitle,
+                    _feedbackMessage,
+                    _feedbackContact);
+#endif
             }
             GUI.enabled = true;
 
@@ -1563,8 +1579,10 @@ namespace PeakMX
                 {
                     _feedbackSelectedTicket = ticket.Code;
                     _feedbackCommentMessage = "";
+#if !DISABLE_FEEDBACK_FILE_ATTACHMENTS
                     _feedbackCommentAttachScreenshot = false;
                     _feedbackCommentAttachments.Clear();
+#endif
                 }
                 if (open)
                 {
@@ -1580,8 +1598,10 @@ namespace PeakMX
                         {
                             _feedbackSelectedTicket = "";
                             _feedbackCommentMessage = "";
+#if !DISABLE_FEEDBACK_FILE_ATTACHMENTS
                             _feedbackCommentAttachScreenshot = false;
                             _feedbackCommentAttachments.Clear();
+#endif
                         }
                         FeedbackClient.CloseTicketAsync(ticket.Code);
                     }
@@ -1605,7 +1625,9 @@ namespace PeakMX
             _feedbackCommentMessage = ClipInput(
                 GUILayout.TextArea(_feedbackCommentMessage ?? "", Theme.TextArea, GUILayout.Height(76)),
                 3000);
+#if !DISABLE_FEEDBACK_FILE_ATTACHMENTS
             DrawFeedbackAttachmentControls(_feedbackCommentAttachments, ref _feedbackCommentAttachScreenshot, true);
+#endif
 
             if (FeedbackClient.IsCommenting)
                 GUILayout.Label(Ru ? "Отправляю дополнение..." : "Sending update...", Theme.LabelDim);
@@ -1614,26 +1636,37 @@ namespace PeakMX
 
             GUILayout.BeginHorizontal();
             bool canSend = !FeedbackClient.IsCommenting
+#if !DISABLE_FEEDBACK_FILE_ATTACHMENTS
                 && (!string.IsNullOrWhiteSpace(_feedbackCommentMessage) || _feedbackCommentAttachScreenshot || _feedbackCommentAttachments.Count > 0);
+#else
+                && !string.IsNullOrWhiteSpace(_feedbackCommentMessage);
+#endif
             GUI.enabled = canSend;
             if (GUILayout.Button(Ru ? "Отправить дополнение" : "Send update", Theme.DonateBtn, GUILayout.Height(28)))
             {
+#if !DISABLE_FEEDBACK_FILE_ATTACHMENTS
                 var attachments = BuildFeedbackAttachments(_feedbackCommentAttachments, _feedbackCommentAttachScreenshot);
                 if (attachments != null)
                     FeedbackClient.AddCommentAsync(_feedbackSelectedTicket, _feedbackCommentMessage, attachments);
+#else
+                FeedbackClient.AddCommentAsync(_feedbackSelectedTicket, _feedbackCommentMessage);
+#endif
             }
             GUI.enabled = true;
             if (GUILayout.Button(Ru ? "Отмена" : "Cancel", Theme.LinkBtn, GUILayout.Width(90), GUILayout.Height(28)))
             {
                 _feedbackSelectedTicket = "";
                 _feedbackCommentMessage = "";
+#if !DISABLE_FEEDBACK_FILE_ATTACHMENTS
                 _feedbackCommentAttachScreenshot = false;
                 _feedbackCommentAttachments.Clear();
+#endif
             }
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
         }
 
+#if !DISABLE_FEEDBACK_FILE_ATTACHMENTS
         private static void DrawFeedbackAttachmentControls(List<FeedbackAttachment> attachments, ref bool attachCurrentScreenshot, bool compact)
         {
             GUILayout.Label(Ru ? "Изображения" : "Images", Theme.LabelDim);
@@ -1823,6 +1856,8 @@ namespace PeakMX
                 value = !value;
             return value;
         }
+
+#endif
 
         private static string FeedbackTypeText(string type)
         {
