@@ -36,15 +36,72 @@ namespace PeakMX
             if (c == null || c.data == null)
                 return;
 
-            try { ApplyMovement(c); } catch (Exception e) { Warn("movement", e); }
-            try { ApplyCheats(c); } catch (Exception e) { Warn("cheats", e); }
+            if (NeedsMovementTick())
+            {
+                try { ApplyMovement(c); } catch (Exception e) { Warn("movement", e); }
+            }
+
+            if (NeedsCheatTick())
+            {
+                try { ApplyCheats(c); } catch (Exception e) { Warn("cheats", e); }
+            }
+
             try { ApplyInfiniteItems(); } catch (Exception e) { Warn("items", e); }
             try { ApplyWorldOverrides(); } catch (Exception e) { Warn("world", e); }
-            try { ApplyUtilityModifiers(c); } catch (Exception e) { Warn("utility", e); }
+            if (NeedsUtilityTick())
+            {
+                try { ApplyUtilityModifiers(c); } catch (Exception e) { Warn("utility", e); }
+            }
             try { ApplyAdminProtection(); } catch (Exception e) { Warn("admin", e); }
             try { ApplyCosmeticShuffle(); } catch (Exception e) { Warn("cosmetics", e); }
             try { GameApi.ApplyFrozenPlayers(Time.deltaTime); } catch (Exception e) { Warn("freeze", e); }
             try { GameApi.ApplyInventoryLocks(Time.deltaTime); } catch (Exception e) { Warn("inventory-lock", e); }
+        }
+
+        private static bool NeedsMovementTick()
+        {
+            return ModConfig.SpeedMod || _speedApplied
+                || ModConfig.JumpMod || _jumpApplied
+                || ModConfig.InfiniteJumps
+                || ModConfig.ClimbMod || _climbApplied
+                || ModConfig.VineClimbMod || _vineApplied
+                || ModConfig.RopeClimbMod || _ropeApplied;
+        }
+
+        private static bool NeedsCheatTick()
+        {
+            return ModConfig.GodMode || _godApplied
+                || ModConfig.InfiniteStamina
+                || ModConfig.NoFallDamage
+                || ModConfig.NoFallingRagdoll
+                || ModConfig.NoSlipperySurfaces
+                || ModConfig.NoWeight
+                || ModConfig.NoStatusEffects
+                || ModConfig.NoInjury
+                || ModConfig.NoHunger
+                || ModConfig.NoCold
+                || ModConfig.NoPoison
+                || ModConfig.NoCurse
+                || ModConfig.NoDrowsy
+                || ModConfig.NoHot
+                || ModConfig.NoCrab
+                || ModConfig.NoThorns
+                || ModConfig.NoSpores
+                || ModConfig.NoWeb
+                || ModConfig.NoArrows
+                || ModConfig.NoPetrify
+                || ModConfig.NoFlyTrap
+                || ModConfig.LockStatus
+                || _lockedStatuses != null;
+        }
+
+        private static bool NeedsUtilityTick()
+        {
+            return ModConfig.LongInteraction || _baseInteractionDistance >= 0f
+                || ModConfig.GameSpeedMod || _timeScaleApplied
+                || ModConfig.CinematicCamera || _cinematicObject != null
+                || Mathf.Abs(ModConfig.PingHandSizeMultiplier - 1f) >= 0.01f
+                || PingBaseFrustumSizes.Count > 0;
         }
 
         // Infinite items: periodically top every held item back up to full charge.
@@ -82,6 +139,12 @@ namespace PeakMX
 
         private static void ApplyAdminProtection()
         {
+            if (!ModConfig.AdminProtectionEnabled)
+            {
+                _adminTimer = 0f;
+                return;
+            }
+
             _adminTimer += Time.deltaTime;
             if (_adminTimer < 2f) return;
             _adminTimer = 0f;
@@ -216,10 +279,22 @@ namespace PeakMX
                     ClearBlockedStatus(affl, CharacterAfflictions.STATUSTYPE.Curse, ModConfig.NoCurse);
                     ClearBlockedStatus(affl, CharacterAfflictions.STATUSTYPE.Drowsy, ModConfig.NoDrowsy);
                     ClearBlockedStatus(affl, CharacterAfflictions.STATUSTYPE.Hot, ModConfig.NoHot);
+                    ClearBlockedStatus(affl, CharacterAfflictions.STATUSTYPE.Crab, ModConfig.NoCrab);
+                    ClearBlockedStatus(affl, CharacterAfflictions.STATUSTYPE.Thorns, ModConfig.NoThorns);
+                    ClearBlockedStatus(affl, CharacterAfflictions.STATUSTYPE.Spores, ModConfig.NoSpores);
+                    ClearBlockedStatus(affl, CharacterAfflictions.STATUSTYPE.Web, ModConfig.NoWeb);
+                    ClearBlockedStatus(affl, CharacterAfflictions.STATUSTYPE.Arrow, ModConfig.NoArrows);
+                    ClearBlockedStatus(affl, CharacterAfflictions.STATUSTYPE.Petrify, ModConfig.NoPetrify);
+                    ClearBlockedStatus(affl, CharacterAfflictions.STATUSTYPE.FlyTrap, ModConfig.NoFlyTrap);
                 }
 
                 if (ModConfig.NoWeight)
                     affl.SetStatus(CharacterAfflictions.STATUSTYPE.Weight, 0f);
+
+                if (ModConfig.NoThorns)
+                    GameApi.ClearThorns(c, false);
+                if (ModConfig.NoArrows)
+                    GameApi.ClearArrows(c, false);
 
                 if (ModConfig.LockStatus)
                 {
@@ -305,7 +380,6 @@ namespace PeakMX
                 _cinematicObject.transform.rotation = source.rotation;
                 Vector3 euler = _cinematicObject.transform.rotation.eulerAngles;
                 _cinematicLook = new Vector2(euler.y, euler.x);
-                ActionTracker.Track("cinematic_camera_on");
             }
 
             _cinematicOverride.fov = Mathf.Clamp(ModConfig.CinematicCameraFov, 1f, 120f);
@@ -337,12 +411,14 @@ namespace PeakMX
             UnityEngine.Object.Destroy(_cinematicObject);
             _cinematicObject = null;
             _cinematicOverride = null;
-            ActionTracker.Track("cinematic_camera_off");
         }
 
         private static void ApplyPingHandScale()
         {
             float scale = Mathf.Clamp(ModConfig.PingHandSizeMultiplier, 0.1f, 10f);
+            if (Mathf.Abs(scale - 1f) < 0.01f && PingBaseFrustumSizes.Count == 0)
+                return;
+
             var pings = UnityEngine.Object.FindObjectsByType<PointPing>(FindObjectsSortMode.None);
             for (int i = 0; i < pings.Length; i++)
             {

@@ -13,16 +13,48 @@ namespace PeakMX
         public static bool Enabled => ModConfig.ManyPlayersEnabled != null && ModConfig.ManyPlayersEnabled.Value;
         public static int MaxPlayers => Mathf.Clamp(ModConfig.ManyPlayersMaxPlayers?.Value ?? 4, 1, 30);
 
-        public static string StatusText(bool russian)
+        public static string StatusText(Lang lang)
         {
             if (!Enabled)
-                return russian ? "Выключено" : "Disabled";
+                return Localization.Pick(
+                    lang,
+                    "Выключено",
+                    "Disabled",
+                    "已关闭",
+                    "已關閉",
+                    uk: "Вимкнено",
+                    ja: "無効",
+                    ko: "꺼짐",
+                    es: "Desactivado",
+                    ptBr: "Desativado",
+                    de: "Deaktiviert",
+                    fr: "Désactivé",
+                    it: "Disattivato",
+                    pl: "Wyłączone",
+                    tr: "Kapalı");
 
             string count = PhotonNetwork.InRoom
                 ? $"{PhotonNetwork.CurrentRoom?.PlayerCount ?? 0}/{MaxPlayers}"
                 : MaxPlayers.ToString();
-            return russian ? $"Включено, лимит: {count}" : $"Enabled, limit: {count}";
+            return Localization.Pick(
+                lang,
+                $"Включено, лимит: {count}",
+                $"Enabled, limit: {count}",
+                $"已启用，人数上限: {count}",
+                $"已啟用，人數上限: {count}",
+                uk: $"Увімкнено, ліміт: {count}",
+                ja: $"有効、上限: {count}",
+                ko: $"켜짐, 제한: {count}",
+                es: $"Activado, límite: {count}",
+                ptBr: $"Ativado, limite: {count}",
+                de: $"Aktiviert, Limit: {count}",
+                fr: $"Activé, limite : {count}",
+                it: $"Attivo, limite: {count}",
+                pl: $"Włączone, limit: {count}",
+                tr: $"Açık, limit: {count}");
         }
+
+        public static string StatusText(bool russian) => StatusText(russian ? Lang.Russian : Lang.English);
 
         public static void LogLobby(string message)
         {

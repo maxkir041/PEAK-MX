@@ -4,34 +4,15 @@
     <AssemblyName>PEAK-MX</AssemblyName>
     <Product>PEAK-MX</Product>
     <Description>PEAK-MX — quality-of-life and utility mod for PEAK. Original work by maxkir041.</Description>
-    <Version>1.0.14</Version>
+    <Version>1.1.2</Version>
     <TargetFramework>net472</TargetFramework>
     <LangVersion>11.0</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <RestoreAdditionalProjectSources></RestoreAdditionalProjectSources>
     <Authors>maxkir041</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Copyright>Copyright © 2026 maxkir041</Copyright>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)' == 'Thunderstore'">
-    <Optimize>true</Optimize>
-    <DebugType>none</DebugType>
-    <DefineConstants>$(DefineConstants);THUNDERSTORE_PACKAGE;THUNDERSTORE_NO_ANALYTICS;DISABLE_FEEDBACK_FILE_ATTACHMENTS;DISABLE_AUTO_UPDATE_INSTALL</DefineConstants>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)' == 'Nexus'">
-    <Optimize>true</Optimize>
-    <DebugType>none</DebugType>
-    <DefineConstants>$(DefineConstants);DISABLE_FEEDBACK_FILE_ATTACHMENTS;DISABLE_AUTO_UPDATE_INSTALL</DefineConstants>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(DisableFeedbackFileAttachments)' == 'true'">
-    <DefineConstants>$(DefineConstants);DISABLE_FEEDBACK_FILE_ATTACHMENTS</DefineConstants>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(DisableAutoUpdateInstall)' == 'true'">
-    <DefineConstants>$(DefineConstants);DISABLE_AUTO_UPDATE_INSTALL</DefineConstants>
   </PropertyGroup>
 
   <!-- Adjust these two paths if your install differs -->
@@ -39,6 +20,11 @@
     <GameManaged>C:\Program Files (x86)\Steam\steamapps\common\PEAK\PEAK_Data\Managed</GameManaged>
     <BepInExRoot>C:\Program Files (x86)\Steam\steamapps\common\PEAK\BepInEx</BepInExRoot>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="MX-AHG\**\*.cs" />
+    <Compile Remove="tests\**\*.cs" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- BepInEx / Harmony -->
@@ -50,7 +36,6 @@
       <HintPath>$(BepInExRoot)\core\0Harmony.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="System.Windows.Forms" Condition="'$(Configuration)' != 'Thunderstore' and '$(Configuration)' != 'Nexus' and '$(DisableFeedbackFileAttachments)' != 'true'" />
 
     <!-- Game assemblies -->
     <Reference Include="Assembly-CSharp">
@@ -77,6 +62,10 @@
       <HintPath>$(GameManaged)\UnityEngine.IMGUIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>$(GameManaged)\UnityEngine.AudioModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.ScreenCaptureModule">
       <HintPath>$(GameManaged)\UnityEngine.ScreenCaptureModule.dll</HintPath>
       <Private>false</Private>
@@ -91,6 +80,10 @@
     </Reference>
     <Reference Include="PhotonRealtime">
       <HintPath>$(GameManaged)\PhotonRealtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Photon3Unity3D">
+      <HintPath>$(GameManaged)\Photon3Unity3D.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="PhotonUnityNetworking">
@@ -116,7 +109,7 @@
   </ItemGroup>
 
   <!-- Авто-деплой собранной DLL в plugins (чтобы не копировать вручную) -->
-  <Target Name="DeployToPlugins" AfterTargets="Build" Condition="'$(Configuration)' != 'Thunderstore' and '$(Configuration)' != 'Nexus' and '$(DeployToPlugins)' != 'false'">
+  <Target Name="DeployToPlugins" AfterTargets="Build" Condition="'$(Configuration)' != 'Thunderstore' and '$(DeployToPlugins)' != 'false'">
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExRoot)\plugins" SkipUnchangedFiles="false" />
   </Target>
 

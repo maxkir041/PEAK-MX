@@ -1,8 +1,8 @@
 {
   "name": "PEAK_MX",
-  "version_number": "1.0.14",
+  "version_number": "1.1.2",
   "website_url": "https://github.com/maxkir041/PEAK-MX",
-  "description": "PEAK-MX - utility and admin menu for PEAK with movement, cheats, inventory, unlocks, host tools, and larger-lobby controls.",
+  "description": "PEAK-MX - utility, prank, and admin menu for PEAK with movement tools, ESP, inventory editing, unlocks, world tools, and larger-lobby controls.",
   "dependencies": [
     "BepInEx-BepInExPack_PEAK-5.4.75301"
   ]

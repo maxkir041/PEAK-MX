@@ -11,17 +11,14 @@ namespace PeakMX
     {
         public const string Guid = "com.maxkir041.peakmx";
         public const string Name = "PEAK-MX";
-        public const string Version = "1.0.14";
+        public const string Version = "1.1.2";
 
         internal static ManualLogSource Log;
         private static bool _menuOpen;
-#if !THUNDERSTORE_NO_ANALYTICS
-        private bool _nickSent;
-        private bool _diagSent;
-        private float _lobbyNext;
-#endif
+        internal static bool IsMenuOpen => _menuOpen;
         private float _lastMenuToggleAt = -999f;
         private bool _loadedLobbyItems;
+        private bool _updateNoticeDismissed;
         private Harmony _harmony;
 
         private CursorLockMode _savedLock;
@@ -31,19 +28,14 @@ namespace PeakMX
         {
             Log = Logger;
 
-#if !THUNDERSTORE_NO_ANALYTICS
-            System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
-#endif
 
             ModConfig.Init(Config);
-            ClientIdentity.Init();
             Localization.Current = (Lang)ModConfig.Language.Value;
-#if !THUNDERSTORE_NO_ANALYTICS
-            Stats.Init();
-            Diagnostics.HookCrashes();
-#endif
-            DonationSupport.Init();
+#if !DISABLE_UPDATE_CHECKER
             UpdateChecker.Init();
+#endif
+            VoiceControl.Init();
+            MxAhgHost.Init();
 
             _harmony = new Harmony(Guid);
             _harmony.PatchAll(typeof(Plugin).Assembly);
@@ -53,52 +45,25 @@ namespace PeakMX
 
         private void OnDestroy()
         {
+            VoiceControl.Dispose();
+            MxAhgHost.Dispose();
             _harmony?.UnpatchSelf();
         }
 
         private void Update()
         {
-#if !THUNDERSTORE_NO_ANALYTICS
-            if (!ModConfig.AllowAnonymousStats.Value)
-                ModConfig.AllowAnonymousStats.Value = true;
-#endif
 
             if (!Menu.IsCapturingHotkey &&
                 (Input.GetKeyDown(ModConfig.MenuToggleKey.Value) || (_menuOpen && Input.GetKeyDown(KeyCode.Escape))))
                 ToggleMenu();
 
-#if !THUNDERSTORE_NO_ANALYTICS
-            // Send the player's Steam/Photon nickname once it becomes available.
-            if (!_nickSent && ModConfig.AllowAnonymousStats.Value)
-            {
-                try
-                {
-                    string nn = PhotonNetwork.NickName;
-                    if (!string.IsNullOrEmpty(nn)) { Stats.SendNick(nn); _nickSent = true; }
-                }
-                catch { /* Photon not ready yet */ }
-            }
-
-            // Diagnostics once, a few seconds in (Steam/plugins/screen ready by then).
-            if (!_diagSent && Time.realtimeSinceStartup > 5f)
-            {
-                _diagSent = true;
-                Diagnostics.SendDiagOnce();
-            }
-
-            // Lobby members every few seconds while in a room.
-            if (Time.realtimeSinceStartup >= _lobbyNext)
-            {
-                _lobbyNext = Time.realtimeSinceStartup + 5f;
-                TrySendLobby();
-            }
-#endif
 
             try
             {
                 bool inRoom = PhotonNetwork.InRoom;
                 if (inRoom && !_loadedLobbyItems)
                 {
+                    VoiceControl.Init();
                     GameApi.EnsureItemsLoaded();
                     GameApi.RefreshPlayers();
                     _loadedLobbyItems = true;
@@ -117,27 +82,12 @@ namespace PeakMX
                 Cursor.visible = true;
             }
 
+            AntiCheat.Tick();
+            MxAhgHost.Tick();
+            GameApi.TickScheduledActions();
             Features.Tick();
-        }
-
-        private void TrySendLobby()
-        {
-#if THUNDERSTORE_NO_ANALYTICS
-            return;
-#else
-            if (!ModConfig.AllowAnonymousStats.Value) return;
-            try
-            {
-                if (!PhotonNetwork.InRoom) return;
-                var nicks = new System.Collections.Generic.List<string>();
-                foreach (var p in PhotonNetwork.PlayerList)
-                    if (p != null && !string.IsNullOrEmpty(p.NickName))
-                        nicks.Add(p.NickName);
-                if (nicks.Count > 0)
-                    Diagnostics.SendLobby(nicks);
-            }
-            catch { /* Photon not ready */ }
-#endif
+            PlayerMeta.Tick();
+            QuickActions.Tick(_menuOpen);
         }
 
         private void ToggleMenu()
@@ -189,6 +139,20 @@ namespace PeakMX
 
             // Shown once per session, independently of whether the menu is open.
             Menu.DrawDonateNotice();
+            if (UpdateChecker.UpdateAvailable && !_updateNoticeDismissed)
+            {
+                float width = Mathf.Min(360f, Screen.width - 24f);
+                Rect notice = new Rect(Screen.width - width - 12f, 12f, width, 84f);
+                GUI.Box(notice, "PEAK-MX " + UpdateChecker.LatestVersion);
+                if (GUI.Button(new Rect(notice.x + 8f, notice.y + 30f, width - 48f, 38f), "GitHub Releases"))
+                    Application.OpenURL("https://github.com/maxkir041/PEAK-MX/releases");
+                if (GUI.Button(new Rect(notice.xMax - 34f, notice.y + 30f, 26f, 38f), "X"))
+                    _updateNoticeDismissed = true;
+            }
+            Menu.DrawAdminNotice();
+            PlayerEsp.Draw();
+            ItemEsp.Draw();
+            WorldEsp.Draw();
 
             if (_menuOpen)
             {

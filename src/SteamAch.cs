@@ -153,7 +153,7 @@ namespace PeakMX
 
         private static bool Ready
         {
-            get { try { return SteamManager.Initialized; } catch { return false; } }
+            get { try { return SteamAPI.IsSteamRunning() && SteamUser.BLoggedOn(); } catch { return false; } }
         }
 
         private static AchievementManager Manager
@@ -189,15 +189,11 @@ namespace PeakMX
                 if (TryGetLinked(t, out var linked))
                 {
                     SetStat(linked.Stat, linked.RequiredValue);
-                    if (track)
-                        ActionTracker.Track("achievement_unlock", null, new Dictionary<string, object> { ["name"] = Id(t) });
                     return;
                 }
 
                 SteamUserStats.SetAchievement(Id(t));
                 SteamUserStats.StoreStats();
-                if (track)
-                    ActionTracker.Track("achievement_unlock", null, new Dictionary<string, object> { ["name"] = Id(t) });
             }
             catch (Exception e) { Plugin.Log?.LogWarning($"[Ach] Unlock {t}: {e.Message}"); }
         }
@@ -215,8 +211,6 @@ namespace PeakMX
 
                 SteamUserStats.ClearAchievement(Id(t));
                 SteamUserStats.StoreStats();
-                if (track)
-                    ActionTracker.Track("achievement_revoke", null, new Dictionary<string, object> { ["name"] = Id(t) });
             }
             catch (Exception e) { Plugin.Log?.LogWarning($"[Ach] Revoke {t}: {e.Message}"); }
         }
@@ -238,7 +232,6 @@ namespace PeakMX
                     Unlock(t, false);
                     changed++;
                 }
-                ActionTracker.Track("achievement_unlock_all", changed);
             }
             catch (Exception e) { Plugin.Log?.LogWarning($"[Ach] UnlockAll: {e.Message}"); }
         }
@@ -255,7 +248,6 @@ namespace PeakMX
                     Revoke(t, false);
                     changed++;
                 }
-                ActionTracker.Track("achievement_revoke_all", changed);
             }
             catch (Exception e) { Plugin.Log?.LogWarning($"[Ach] RevokeAll: {e.Message}"); }
         }
@@ -356,13 +348,11 @@ namespace PeakMX
         public static void SetMaxAscent(int value)
         {
             SetStat(STEAMSTATTYPE.MaxAscent, value);
-            ActionTracker.Track("achievement_set_max_ascent", value);
         }
 
         public static void SetStatValue(STEAMSTATTYPE stat, int value)
         {
             SetStat(stat, value);
-            ActionTracker.Track("achievement_set_stat", value, new Dictionary<string, object> { ["stat"] = stat.ToString() });
         }
 
         public static void UnlockAllCosmetics()
@@ -370,13 +360,11 @@ namespace PeakMX
             UnlockAll();
             if (TryGetStat(STEAMSTATTYPE.MaxAscent, out int current) && current >= 8)
             {
-                ActionTracker.Track("cosmetics_unlock_all", 0, new Dictionary<string, object> { ["alreadyMaxAscent"] = true });
                 return;
             }
 
             SetMaxAscent(8);
             SetStat(STEAMSTATTYPE.LoadedCosmeticsPreviously, 1);
-            ActionTracker.Track("cosmetics_unlock_all", 8, new Dictionary<string, object> { ["alreadyMaxAscent"] = false });
         }
 
         private static bool TryGetLinked(ACHIEVEMENTTYPE t, out LinkedAchievement linked)

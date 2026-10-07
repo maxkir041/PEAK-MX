@@ -148,6 +148,82 @@ namespace PeakMX
         }
     }
 
+    internal static class MenuInputBlocker
+    {
+        private static readonly MethodInfo ResetInputMethod = AccessTools.Method(typeof(CharacterInput), "ResetInput");
+
+        public static void Suppress(CharacterInput input)
+        {
+            try
+            {
+                if (!Plugin.IsMenuOpen || input == null)
+                    return;
+
+                if (ResetInputMethod != null)
+                {
+                    ResetInputMethod.Invoke(input, null);
+                    return;
+                }
+
+                input.movementInput = Vector2.zero;
+                input.lookInput = Vector2.zero;
+                input.scrollInput = 0f;
+                input.crouchIsPressed = false;
+                input.crouchWasPressed = false;
+                input.crouchToggleWasPressed = false;
+                input.sprintIsPressed = false;
+                input.sprintToggleIsPressed = false;
+                input.sprintWasPressed = false;
+                input.sprintToggleWasPressed = false;
+                input.jumpWasPressed = false;
+                input.jumpIsPressed = false;
+                input.interactWasPressed = false;
+                input.interactIsPressed = false;
+                input.interactWasReleased = false;
+                input.dropWasPressed = false;
+                input.dropIsPressed = false;
+                input.dropWasReleased = false;
+                input.usePrimaryWasPressed = false;
+                input.usePrimaryIsPressed = false;
+                input.usePrimaryWasReleased = false;
+                input.useSecondaryWasPressed = false;
+                input.useSecondaryIsPressed = false;
+                input.useSecondaryWasReleased = false;
+                input.pingWasPressed = false;
+                input.selectSlotForwardWasPressed = false;
+                input.selectSlotBackwardWasPressed = false;
+                input.unselectSlotWasPressed = false;
+                input.selectBackpackWasPressed = false;
+                input.scrollBackwardWasPressed = false;
+                input.scrollForwardWasPressed = false;
+                input.scrollBackwardIsPressed = false;
+                input.scrollForwardIsPressed = false;
+                input.emoteIsPressed = false;
+                input.spectateLeftWasPressed = false;
+                input.spectateRightWasPressed = false;
+            }
+            catch (Exception e) { Plugin.Log?.LogWarning($"[MenuInputBlocker] {e.Message}"); }
+        }
+    }
+
+    [HarmonyPatch(typeof(CharacterInput), "Sample")]
+    public static class MenuInputSamplePatch
+    {
+        private static void Postfix(CharacterInput __instance)
+        {
+            MenuInputBlocker.Suppress(__instance);
+        }
+    }
+
+    [HarmonyPatch(typeof(CharacterInput), "SampleAlways")]
+    public static class MenuInputSampleAlwaysPatch
+    {
+        private static void Postfix(CharacterInput __instance)
+        {
+            MenuInputBlocker.Suppress(__instance);
+        }
+    }
+
     /// <summary>Teleports the local player to their own ping.</summary>
     [HarmonyPatch(typeof(PointPinger), "ReceivePoint_Rpc")]
     public static class PointPingPatch
@@ -302,6 +378,34 @@ namespace PeakMX
         }
     }
 
+    [HarmonyPatch(typeof(CharacterMovement), "FallFactor")]
+    public static class NoFallDamageFactorPatch
+    {
+        private static void Postfix(Character ___character, ref float __result)
+        {
+            try
+            {
+                if (ModConfig.NoFallDamage && ___character != null && ___character.IsLocal)
+                    __result = 0f;
+            }
+            catch (Exception e) { Plugin.Log?.LogWarning($"[NoFallDamageFactorPatch] {e.Message}"); }
+        }
+    }
+
+    [HarmonyPatch(typeof(CharacterMovement), "MaxVelDmg")]
+    public static class NoFallDamageVelocityPatch
+    {
+        private static void Postfix(Character ___character, ref float __result)
+        {
+            try
+            {
+                if (ModConfig.NoFallDamage && ___character != null && ___character.IsLocal)
+                    __result = 0f;
+            }
+            catch (Exception e) { Plugin.Log?.LogWarning($"[NoFallDamageVelocityPatch] {e.Message}"); }
+        }
+    }
+
     [HarmonyPatch(typeof(CharacterMovement), "AcceptableAngle")]
     public static class NoSlipperySurfacesPatch
     {
@@ -401,7 +505,7 @@ namespace PeakMX
         {
             try
             {
-                if (!ModConfig.GlobalVoice || __instance == null)
+                if (__instance == null)
                     return;
 
                 Character character = CharacterField?.GetValue(__instance) as Character;
@@ -414,39 +518,47 @@ namespace PeakMX
                 if (source == null)
                     return;
 
+                AudioSource audioSource = source as AudioSource;
+                if (!VoiceControl.ShouldForceAudible(character))
+                {
+                    VoiceControl.RestoreVoiceSource(audioSource);
+                    return;
+                }
+
                 float audioLevel = 1f;
                 if (AudioLevelField != null && AudioLevelField.GetValue(__instance) is float level)
                     audioLevel = Mathf.Clamp01(level);
 
-                SetFloatProperty(source, "spatialBlend", 0f);
-                SetBoolProperty(source, "bypassReverbZones", true);
-                float currentVolume = GetFloatProperty(source, "volume", 0f);
-                SetFloatProperty(source, "volume", Mathf.Clamp01(Mathf.Max(currentVolume, audioLevel)));
+                VoiceControl.ApplyVoiceSource(audioSource, audioLevel);
+                VoiceControl.DisableEcho(((Component)__instance).GetComponent<VoiceObscuranceFilter>());
                 LastFalloffField?.SetValue(__instance, 1f);
             }
             catch (Exception e) { Plugin.Log?.LogWarning($"[GlobalVoicePatch] {e.Message}"); }
         }
+    }
 
-        private static float GetFloatProperty(object target, string name, float fallback)
+    [HarmonyPatch(typeof(VoiceObscuranceFilter), "Update")]
+    public static class GlobalVoiceNoEchoPatch
+    {
+        private static readonly FieldInfo VoiceHandlerField = AccessTools.Field(typeof(VoiceObscuranceFilter), "_voiceHandler");
+        private static readonly FieldInfo CharacterField = AccessTools.Field(typeof(CharacterVoiceHandler), "m_character");
+
+        private static void Postfix(VoiceObscuranceFilter __instance)
         {
             try
             {
-                object value = target.GetType().GetProperty(name)?.GetValue(target, null);
-                return value is float f ? f : fallback;
+                if (__instance == null)
+                    return;
+                CharacterVoiceHandler handler = VoiceHandlerField?.GetValue(__instance) as CharacterVoiceHandler
+                    ?? ((Component)__instance).GetComponent<CharacterVoiceHandler>();
+                if (handler == null)
+                    return;
+                Character character = CharacterField?.GetValue(handler) as Character;
+                if (!VoiceControl.ShouldForceAudible(character))
+                    return;
+                VoiceControl.DisableEcho(__instance);
             }
-            catch { return fallback; }
-        }
-
-        private static void SetFloatProperty(object target, string name, float value)
-        {
-            try { target.GetType().GetProperty(name)?.SetValue(target, value, null); }
-            catch { }
-        }
-
-        private static void SetBoolProperty(object target, string name, bool value)
-        {
-            try { target.GetType().GetProperty(name)?.SetValue(target, value, null); }
-            catch { }
+            catch (Exception e) { Plugin.Log?.LogWarning($"[GlobalVoiceNoEchoPatch] {e.Message}"); }
         }
     }
 }
